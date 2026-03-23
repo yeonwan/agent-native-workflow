@@ -192,7 +192,12 @@ Rules:
     def write_gate_results(self, iteration: int, results: list[GateResult]) -> Path:
         path = self.iter_dir(iteration) / "gates.json"
         data = [
-            {"name": r.name, "status": r.status.value, "output": r.output, "duration_s": r.duration_s}
+            {
+                "name": r.name,
+                "status": r.status.value,
+                "output": r.output,
+                "duration_s": r.duration_s,
+            }
             for r in results
         ]
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
@@ -260,6 +265,143 @@ Rules:
         if hasattr(metrics, "to_dict"):
             path.write_text(json.dumps(metrics.to_dict(), indent=2, ensure_ascii=False))  # type: ignore[union-attr]
         return path
+
+    # ── Run Summary ──────────────────────────────────────────────────────────
+
+    def load_run_summary(self, run_id: str | None = None) -> dict[str, object] | None:
+        """Load a structured summary dict for a given run (or the latest run).
+
+        Returns a dict with keys:
+          - run_id (str): the run directory name
+          - manifest (dict): contents of manifest.json (run_id, started_at, config)
+          - metrics (dict | None): contents of metrics.json, or None if absent
+          - iterations (list[dict]): per-iteration gate/feedback data from iter-NNN dirs
+
+        Returns None if the requested run directory does not exist.
+        """
+        if run_id is None:
+            latest = self._base / "latest"
+            if not latest.exists():
+                return None
+            run_dir = latest.resolve()
+        else:
+            run_dir = self._base / "runs" / run_id
+            if not run_dir.is_dir():
+                return None
+
+        # manifest
+        manifest: dict[str, object] = {}
+        manifest_path = run_dir / "manifest.json"
+        if manifest_path.is_file():
+            try:
+                manifest = json.loads(manifest_path.read_text())
+            except Exception:
+                pass
+
+        # metrics (may be absent if run was interrupted)
+        metrics: dict[str, object] | None = None
+        metrics_path = run_dir / "metrics.json"
+        if metrics_path.is_file():
+            try:
+                metrics = json.loads(metrics_path.read_text())
+            except Exception:
+                pass
+
+        # per-iteration data
+        iterations: list[dict[str, object]] = []
+        iter_dirs = sorted(run_dir.glob("iter-[0-9][0-9][0-9]"))
+        for iter_dir in iter_dirs:
+            iter_num_str = iter_dir.name.replace("iter-", "")
+            try:
+                iter_num = int(iter_num_str)
+            except ValueError:
+                continue
+
+            gate_results: list[dict[str, object]] = []
+            gates_path = iter_dir / "gates.json"
+            if gates_path.is_file():
+                try:
+                    gate_results = json.loads(gates_path.read_text())
+                except Exception:
+                    pass
+
+            outcome = ""
+            feedback_path = iter_dir / "feedback.md"
+            if feedback_path.is_file():
+                feedback_text = feedback_path.read_text()
+                if "gate_fail" in feedback_text:
+                    outcome = IterationOutcome.GATE_FAIL.value
+                elif "verify_fail" in feedback_text:
+                    outcome = IterationOutcome.VERIFY_FAIL.value
+                elif "security_fail" in feedback_text:
+                    outcome = IterationOutcome.SECURITY_FAIL.value
+
+            iterations.append(
+                {
+                    "iteration": iter_num,
+                    "gate_results": gate_results,
+                    "outcome": outcome,
+                }
+            )
+
+        return {
+            "run_id": run_dir.name,
+            "manifest": manifest,
+            "metrics": metrics,
+            "iterations": iterations,
+        }
+
+    def list_runs(self) -> list[dict[str, object]]:
+        """Return a list of all runs sorted newest-first.
+
+        Each entry is a compact dict with keys:
+          - run_id (str)
+          - started_at (str): from manifest.json, empty string if unavailable
+          - converged (str): "yes", "no", or "incomplete" (if metrics.json absent)
+          - total_iterations (int): 0 if unknown
+        """
+        runs_dir = self._base / "runs"
+        if not runs_dir.is_dir():
+            return []
+
+        entries: list[dict[str, object]] = []
+        for run_dir in sorted(runs_dir.iterdir(), reverse=True):
+            if not run_dir.is_dir():
+                continue
+
+            started_at = ""
+            manifest_path = run_dir / "manifest.json"
+            if manifest_path.is_file():
+                try:
+                    manifest = json.loads(manifest_path.read_text())
+                    started_at = str(manifest.get("started_at", ""))
+                except Exception:
+                    pass
+
+            converged = "incomplete"
+            total_iterations = 0
+            metrics_path = run_dir / "metrics.json"
+            if metrics_path.is_file():
+                try:
+                    metrics = json.loads(metrics_path.read_text())
+                    converged = "yes" if metrics.get("converged") else "no"
+                    total_iterations = int(metrics.get("total_iterations", 0))
+                except Exception:
+                    pass
+            else:
+                # Count iter dirs as a best-effort count
+                total_iterations = len(list(run_dir.glob("iter-[0-9][0-9][0-9]")))
+
+            entries.append(
+                {
+                    "run_id": run_dir.name,
+                    "started_at": started_at,
+                    "converged": converged,
+                    "total_iterations": total_iterations,
+                }
+            )
+
+        return entries
 
     # ── Internal ─────────────────────────────────────────────────────────────
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -101,6 +100,102 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         runner=runner,
     )
     return 0 if passed else 1
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    """Print a human-readable summary of a past pipeline run.
+
+    Uses RunStore.load_run_summary() to read the structured data and then
+    formats it as plain text with no Rich dependency.
+    """
+    from agent_native_workflow.store import RunStore
+
+    base_dir = Path(args.output_dir) if args.output_dir else Path(".agn")
+    store = RunStore(base_dir=base_dir)
+
+    # ── --list mode ───────────────────────────────────────────────────────────
+    if getattr(args, "list", False):
+        runs = store.list_runs()
+        if not runs:
+            print("No runs found.")
+            return 0
+        print(f"{'Run ID':<30} {'Started At':<25} {'Converged':<12} {'Iterations'}")
+        print("-" * 80)
+        for r in runs:
+            print(
+                f"{r['run_id']:<30} {str(r['started_at']):<25} "
+                f"{r['converged']:<12} {r['total_iterations']}"
+            )
+        return 0
+
+    # ── single-run mode ───────────────────────────────────────────────────────
+    run_id: str | None = getattr(args, "run", None) or None
+    summary = store.load_run_summary(run_id=run_id)
+
+    if summary is None:
+        if run_id:
+            print(f"Run '{run_id}' not found in {base_dir}/runs/", file=sys.stderr)
+        else:
+            print("No runs found. Run 'agn run' first.", file=sys.stderr)
+        return 1
+
+    manifest: dict = summary.get("manifest") or {}  # type: ignore[assignment]
+    metrics: dict | None = summary.get("metrics")  # type: ignore[assignment]
+    iterations: list = summary.get("iterations") or []  # type: ignore[assignment]
+    config_snap: dict = manifest.get("config") or {}  # type: ignore[assignment]
+
+    # Header
+    print(f"Run ID    : {summary['run_id']}")
+    print(f"Started   : {manifest.get('started_at', 'unknown')}")
+
+    # Config snapshot details
+    if config_snap:
+        cli_provider = config_snap.get("cli_provider", "")
+        if cli_provider:
+            print(f"Provider  : {cli_provider}")
+        model_a = config_snap.get("model", "") or config_snap.get("model_a", "")
+        model_b = config_snap.get("model_verify", "") or config_snap.get("model_b", "")
+        if model_a:
+            print(f"Model A   : {model_a}")
+        if model_b:
+            print(f"Model B/C : {model_b}")
+
+    # Metrics summary
+    if metrics:
+        converged = "yes" if metrics.get("converged") else "no"
+        total_iters = metrics.get("total_iterations", len(iterations))
+        total_dur = metrics.get("total_duration_s", 0)
+        print(f"Converged : {converged}")
+        print(f"Iterations: {total_iters}")
+        print(f"Duration  : {total_dur:.1f}s")
+    else:
+        print("Converged : incomplete (run may not have finished)")
+        print(f"Iterations: {len(iterations)} (from iter dirs)")
+
+    # Per-iteration table
+    if iterations:
+        print()
+        print(f"{'Iter':<6} {'Lint':<8} {'Test':<8} {'Verify':<10} {'Outcome'}")
+        print("-" * 50)
+        for it in iterations:
+            gate_map: dict[str, str] = {}
+            for g in it.get("gate_results") or []:
+                gate_map[g.get("name", "")] = g.get("status", "")
+            lint_s = gate_map.get("lint", "skipped")
+            test_s = gate_map.get("test", "skipped")
+
+            # verification result from metrics if available
+            verify_s = "skipped"
+            if metrics:
+                for iter_m in metrics.get("iterations") or []:
+                    if iter_m.get("iteration") == it["iteration"]:
+                        verify_s = iter_m.get("verification_result", "skipped")
+                        break
+
+            outcome = it.get("outcome") or ""
+            print(f"{it['iteration']:<6} {lint_s:<8} {test_s:<8} {verify_s:<10} {outcome}")
+
+    return 0
 
 
 def _cmd_detect(_args: argparse.Namespace) -> int:
@@ -243,8 +338,12 @@ criteria:
 
     # ── config.yaml — user-facing workflow settings ───────────────────────────
     if not workflow_config_file.exists():
-        lint_hint = f"# lint-cmd: {detected.lint_cmd}" if detected.lint_cmd else "# lint-cmd: make lint"
-        test_hint = f"# test-cmd: {detected.test_cmd}" if detected.test_cmd else "# test-cmd: make test"
+        lint_hint = (
+            f"# lint-cmd: {detected.lint_cmd}" if detected.lint_cmd else "# lint-cmd: make lint"
+        )
+        test_hint = (
+            f"# test-cmd: {detected.test_cmd}" if detected.test_cmd else "# test-cmd: make test"
+        )
         workflow_config_file.write_text(f"""\
 # agent-native-workflow configuration
 # Edit this file to customize the workflow for this project.
@@ -287,8 +386,8 @@ cli-provider: claude
     print("Next steps:")
     print(f"  1. Edit {prompt_file} — describe what to build")
     print(f"  2. Edit {requirements_file} — list testable requirements")
-    print(f"  3. Run: agn run --cli <provider>")
-    print(f"     Or with a Jira ticket: agn run --requirements PROJ-123.docx")
+    print("  3. Run: agn run --cli <provider>")
+    print("     Or with a Jira ticket: agn run --requirements PROJ-123.docx")
     return 0
 
 
@@ -341,8 +440,26 @@ def build_parser() -> argparse.ArgumentParser:
     init_p.add_argument(
         "--cli",
         default=None,
-        help="CLI provider (claude, copilot, codex, cursor) — sets default models in agent-config.yaml",
+        help="CLI provider (claude, copilot, codex, cursor) — default models in agent-config.yaml",
     )
+
+    # status
+    status_p = sub.add_parser(
+        "status", help="Show summary of the last (or a specific) pipeline run"
+    )
+    status_p.add_argument(
+        "--run",
+        default=None,
+        metavar="RUN_ID",
+        help="Show summary for a specific run ID (e.g. run-20260322-120000)",
+    )
+    status_p.add_argument(
+        "--list",
+        action="store_true",
+        default=False,
+        help="List all runs newest-first",
+    )
+    status_p.add_argument("--output-dir", default=None, help="Artifacts directory (default: .agn)")
 
     return parser
 
@@ -357,6 +474,7 @@ def main() -> None:
         "detect": _cmd_detect,
         "providers": _cmd_providers,
         "init": _cmd_init,
+        "status": _cmd_status,
     }
 
     handler = dispatch.get(args.command)
