@@ -41,8 +41,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     # requirements is mandatory; prompt is optional (falls back to requirements if absent)
     if not requirements_file.is_file():
-        print(f"ERROR: Requirements file not found: {requirements_file}", file=sys.stderr)
-        print("Run 'agn init' to create a template.", file=sys.stderr)
+        print("ERROR: Requirements file not found", file=sys.stderr)
         return 1
 
     # ── Handle dry-run mode ───────────────────────────────────────────────────────
@@ -52,14 +51,20 @@ def _cmd_run(args: argparse.Namespace) -> int:
             # Use requirements as task spec
             try:
                 prompt_text = load_requirements(requirements_file)
-            except (FileNotFoundError, ValueError) as e:
+            except FileNotFoundError:
+                print("ERROR: Requirements file not found", file=sys.stderr)
+                return 1
+            except ValueError as e:
                 print(f"ERROR: {e}", file=sys.stderr)
                 return 1
         else:
             # Use PROMPT.yaml
             try:
                 prompt_text = load_prompt(effective_prompt)
-            except (FileNotFoundError, ValueError) as e:
+            except FileNotFoundError:
+                print("ERROR: Requirements file not found", file=sys.stderr)
+                return 1
+            except ValueError as e:
                 print(f"ERROR: {e}", file=sys.stderr)
                 return 1
 
@@ -114,7 +119,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     cfg = detect_all(base_branch=args.base_branch or wcfg.base_branch)
     runner = runner_for(wcfg.cli_provider, **({"model": wcfg.model} if wcfg.model else {}))
 
-    passed = run_triangular_verification(
+    passed, _ = run_triangular_verification(
         requirements_file=requirements_file,
         store=store,
         iteration=1,

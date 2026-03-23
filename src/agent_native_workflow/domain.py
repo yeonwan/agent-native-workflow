@@ -150,6 +150,7 @@ class IterationOutcome(enum.Enum):
 
 
 TRIANGULAR_PASS_MARKER = "TRIANGULAR_PASS"
+CONSENSUS_AGREE_MARKER = "CONSENSUS_AGREE"
 SECURITY_AGENT_PASS_MARKER = "SECURITY_AGENT_PASS"
 
 GateFunction = Callable[[], tuple[bool, str]]

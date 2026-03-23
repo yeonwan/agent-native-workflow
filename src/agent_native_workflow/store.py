@@ -15,8 +15,9 @@ Structure:
             ├── iter-001/
             │   ├── a-output.md        (Agent A raw output)
             │   ├── gates.json         (structured gate results)
-            │   ├── b-review.md        (Agent B blind review)
-            │   ├── c-report.md        (Agent C discrepancy report)
+            │   ├── b-review.md        (Agent B senior dev review)
+            │   ├── c-report.md        (Agent C PM acceptance report)
+            │   ├── b-confirm.md       (Agent B consensus confirmation)
             │   └── feedback.md        (structured feedback → Agent A next iter)
             ├── iter-002/
             │   └── ...
@@ -225,6 +226,16 @@ Rules:
 
     def c_report_path(self, iteration: int) -> Path:
         return self.iter_dir(iteration) / "c-report.md"
+
+    # ── Agent B Confirmation (consensus round) ────────────────────────────────
+
+    def write_b_confirmation(self, iteration: int, content: str) -> Path:
+        path = self.iter_dir(iteration) / "b-confirm.md"
+        path.write_text(content)
+        return path
+
+    def b_confirmation_path(self, iteration: int) -> Path:
+        return self.iter_dir(iteration) / "b-confirm.md"
 
     # ── Feedback ──────────────────────────────────────────────────────────────
 

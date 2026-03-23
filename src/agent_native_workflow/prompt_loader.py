@@ -36,6 +36,24 @@ from pathlib import Path
 _YAML_SUFFIXES = {".yaml", ".yml"}
 
 
+def load_prompt_title(path: Path) -> str:
+    """Extract just the title from a PROMPT.yaml file.
+
+    Returns empty string for non-YAML files or on any error.
+    """
+    if not path.is_file() or path.suffix.lower() not in _YAML_SUFFIXES:
+        return ""
+    try:
+        import yaml  # type: ignore[import-untyped]
+
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            return str(raw.get("title", "")).strip()
+    except Exception:
+        pass
+    return ""
+
+
 def load_prompt(path: Path) -> str:
     """Read PROMPT file and return agent-ready markdown text.
 

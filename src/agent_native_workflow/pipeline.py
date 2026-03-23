@@ -24,7 +24,7 @@ from agent_native_workflow.domain import (
     PipelineMetrics,
 )
 from agent_native_workflow.log import Logger
-from agent_native_workflow.prompt_loader import load_prompt
+from agent_native_workflow.prompt_loader import load_prompt, load_prompt_title
 from agent_native_workflow.requirements_loader import is_text_format, load_requirements
 from agent_native_workflow.runners.base import AgentRunner
 from agent_native_workflow.runners.copilot import apply_text_output
@@ -461,11 +461,15 @@ def run_pipeline(
             if shutdown_requested:
                 break
 
-            # ── Phase 3: Triangular Verification (B + C) ──────────────────────
+            # ── Phase 3: Triangular Verification (B + C + B consensus) ────────
             logger.phase_start("phase3_triangular_verify", iteration=iteration)
             visualizer.on_phase_start(PipelinePhase.TRIANGULAR_VERIFY)
 
-            passed = run_triangular_verification(
+            task_title = ""
+            if prompt_file:
+                task_title = load_prompt_title(prompt_file)
+
+            passed, verify_feedback = run_triangular_verification(
                 requirements_file=agents_requirements_file,
                 store=store,
                 iteration=iteration,
@@ -475,6 +479,7 @@ def run_pipeline(
                 logger=logger,
                 runner=verify_runner,
                 c_runner=c_runner,
+                task_title=task_title,
             )
 
             if passed:
@@ -483,10 +488,9 @@ def run_pipeline(
                 visualizer.on_phase_end(PipelinePhase.TRIANGULAR_VERIFY, "pass")
             else:
                 iter_metrics.verification_status = GateStatus.FAIL
-                c_report = store.c_report_path(iteration)
                 feedback_content = (
-                    c_report.read_text() if c_report.is_file()
-                    else "Triangular verification failed but no discrepancy report found."
+                    verify_feedback
+                    or "Triangular verification failed but no report found."
                 )
                 store.write_feedback(
                     iteration,
