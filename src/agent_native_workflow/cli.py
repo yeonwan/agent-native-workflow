@@ -8,6 +8,8 @@ from pathlib import Path
 def _cmd_run(args: argparse.Namespace) -> int:
     from agent_native_workflow.config import WorkflowConfig
     from agent_native_workflow.pipeline import run_pipeline
+    from agent_native_workflow.prompt_loader import load_prompt
+    from agent_native_workflow.requirements_loader import load_requirements
     from agent_native_workflow.store import RunStore
     from agent_native_workflow.visualization import make_visualizer
 
@@ -43,11 +45,34 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print("Run 'agn init' to create a template.", file=sys.stderr)
         return 1
 
+    # ── Handle dry-run mode ───────────────────────────────────────────────────────
+    if getattr(args, "dry_run", False):
+        effective_prompt: Path | None = prompt_file if prompt_file.is_file() else None
+        if effective_prompt is None:
+            # Use requirements as task spec
+            try:
+                prompt_text = load_requirements(requirements_file)
+            except (FileNotFoundError, ValueError) as e:
+                print(f"ERROR: {e}", file=sys.stderr)
+                return 1
+        else:
+            # Use PROMPT.yaml
+            try:
+                prompt_text = load_prompt(effective_prompt)
+            except (FileNotFoundError, ValueError) as e:
+                print(f"ERROR: {e}", file=sys.stderr)
+                return 1
+
+        print("=== Agent A Prompt (dry-run) ===")
+        print(prompt_text)
+        print("=== End of Prompt ===")
+        return 0
+
     effective_prompt: Path | None = prompt_file if prompt_file.is_file() else None
     if effective_prompt is None:
         print(f"Note: No PROMPT file at {prompt_file} — using requirements as task spec.")
 
-    base_dir = Path(args.output_dir) if args.output_dir else Path(".agn")
+    base_dir = Path(args.output_dir) if args.output_dir else Path(".agent-native-workflow")
     store = RunStore(base_dir=base_dir)
     visualizer = make_visualizer(wcfg.visualization)
 
@@ -81,7 +106,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         print(f"ERROR: Requirements file not found: {requirements_file}", file=sys.stderr)
         return 1
 
-    base_dir = Path(args.output_dir) if args.output_dir else Path(".agn")
+    base_dir = Path(args.output_dir) if args.output_dir else Path(".agent-native-workflow")
     store = RunStore(base_dir=base_dir)
     store.start_run(config_snapshot={"cli_provider": wcfg.cli_provider})
 
@@ -110,7 +135,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     """
     from agent_native_workflow.store import RunStore
 
-    base_dir = Path(args.output_dir) if args.output_dir else Path(".agn")
+    base_dir = Path(args.output_dir) if args.output_dir else Path(".agent-native-workflow")
     store = RunStore(base_dir=base_dir)
 
     # ── --list mode ───────────────────────────────────────────────────────────
@@ -372,7 +397,7 @@ cli-provider: claude
 
     # ── .gitignore hint ───────────────────────────────────────────────────────
     gitignore = Path(".gitignore")
-    agn_entry = ".agn/"
+    agn_entry = ".agent-native-workflow/runs/"
     if gitignore.is_file():
         if agn_entry not in gitignore.read_text():
             with gitignore.open("a") as f:
@@ -421,6 +446,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument(
         "--parallel-gates", action="store_true", default=None, help="Run quality gates in parallel"
     )
+    run_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Print the exact prompt that would be sent to Agent A, then exit",
+    )
 
     # verify
     verify_p = sub.add_parser("verify", help="Run triangular verification only (B+C)")
@@ -459,7 +490,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="List all runs newest-first",
     )
-    status_p.add_argument("--output-dir", default=None, help="Artifacts directory (default: .agn)")
+    status_p.add_argument("--output-dir", default=None, help="Artifacts directory (default: .agent-native-workflow)")
 
     return parser
 

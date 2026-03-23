@@ -361,6 +361,45 @@ def detect_changed_files(
     return all_files
 
 
+def snapshot_working_tree(project_root: Path | None = None) -> set[str]:
+    """Capture the current set of modified/staged/untracked file paths.
+
+    Returns a set of path strings as reported by 'git status --porcelain'.
+    Used to compute exactly which files an agent changed during its run.
+    """
+    root = project_root or Path.cwd()
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            cwd=root,
+            timeout=10,
+        )
+        return set(result.stdout.strip().splitlines())
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return set()
+
+
+def files_changed_since(
+    before: set[str], project_root: Path | None = None
+) -> list[str]:
+    """Return files that changed between a snapshot and now.
+
+    Compares 'git status --porcelain' output against the before-snapshot.
+    New or modified entries in the current status that weren't in before
+    are the files the agent touched.
+    """
+    after = snapshot_working_tree(project_root)
+    new_entries = after - before
+    paths: list[str] = []
+    for entry in sorted(new_entries):
+        # porcelain format: "XY path" or "XY old -> new"
+        parts = entry[3:].split(" -> ")
+        paths.append(parts[-1].strip())
+    return paths
+
+
 def detect_all(project_root: Path | None = None, base_branch: str | None = None) -> ProjectConfig:
     root = project_root or Path.cwd()
     branch = base_branch or os.environ.get("BASE_BRANCH", "main")

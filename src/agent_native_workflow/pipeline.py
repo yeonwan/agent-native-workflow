@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from agent_native_workflow.config import WorkflowConfig
-from agent_native_workflow.detect import ProjectConfig, detect_all
+from agent_native_workflow.detect import ProjectConfig, detect_all, files_changed_since, snapshot_working_tree
 from agent_native_workflow.prompt_loader import load_prompt
 from agent_native_workflow.requirements_loader import is_text_format, load_requirements
 from agent_native_workflow.domain import (
@@ -187,6 +187,11 @@ def _run_implementation_phase(
     if iteration == 1:
         if effective_prompt_file:
             prompt_text = load_prompt(effective_prompt_file)
+            # Inject actual requirements path so Agent A knows where to find it
+            prompt_text = (
+                f"**Requirements file**: `{requirements_file}`\n\n"
+                + prompt_text
+            )
         else:
             # No PROMPT file — use requirements as the full task spec for Agent A
             logger.info("[Phase 1] No PROMPT file found — using requirements as task spec")
@@ -232,7 +237,7 @@ def run_pipeline(
     - Agent B/C paths are resolved from the store (no hardcoded globals)
 
     Args:
-        store: RunStore instance. If None, creates one at .agn/.
+        store: RunStore instance. If None, creates one at .agent-native-workflow/.
         runner: AgentRunner for ALL agents (A, B, C use the same CLI provider).
         workflow_config: WorkflowConfig — determines cli_provider and other settings.
 
@@ -243,7 +248,7 @@ def run_pipeline(
 
     # Build store
     if store is None:
-        store = RunStore(base_dir=Path(".agn"))
+        store = RunStore(base_dir=Path(".agent-native-workflow"))
 
     # Build runner (all agents use same provider)
     from agent_native_workflow.domain import AgentConfig
@@ -307,6 +312,9 @@ def run_pipeline(
     if visualizer is None:
         visualizer = PlainVisualizer()
 
+    # Wire logger → visualizer so TUI log panel receives messages
+    logger.set_log_callback(visualizer.on_log)
+
     cfg = config or detect_all(base_branch=wcfg.base_branch)
     # Apply explicit command overrides from config file / env vars
     if wcfg.lint_cmd:
@@ -366,6 +374,9 @@ def run_pipeline(
             logger.phase_start("phase1_implement", iteration=iteration)
             visualizer.on_phase_start(PipelinePhase.IMPLEMENT)
 
+            # Snapshot working tree before Agent A so we can track exactly what it changed
+            before_snapshot = snapshot_working_tree()
+
             _run_implementation_phase(
                 iteration=iteration,
                 prompt_file=prompt_file,
@@ -376,6 +387,14 @@ def run_pipeline(
                 max_retries=max_retries,
                 logger=logger,
             )
+
+            # Update changed_files to only what Agent A touched this iteration
+            agent_changed = files_changed_since(before_snapshot)
+            if agent_changed:
+                cfg.changed_files = agent_changed
+                logger.info(f"[Phase 1] Agent A changed {len(agent_changed)} file(s): {', '.join(agent_changed[:10])}")
+            else:
+                logger.info("[Phase 1] No file changes detected from Agent A")
 
             iter_metrics.phase1_done = True
             logger.phase_end("phase1_implement", "completed", iteration=iteration)

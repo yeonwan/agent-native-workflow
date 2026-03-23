@@ -4,8 +4,11 @@ Instead of flat files overwritten each iteration, each run gets an isolated
 timestamped directory with per-iteration subdirectories.
 
 Structure:
-    .agn/
-    ├── agent-config.json              (static permissions, written by `agn init`)
+    .agent-native-workflow/
+    ├── config.yaml                    (user-facing workflow settings)
+    ├── PROMPT.yaml                    (Agent A task definition)
+    ├── requirements.md                (Agent B/C verification criteria)
+    ├── agent-config.yaml              (agent allowed tools)
     └── runs/
         └── run-20260322-120000/       (one dir per pipeline run)
             ├── manifest.json          (config snapshot at run start)
@@ -71,7 +74,7 @@ class RunStore:
     """Manages the shared filesystem for one pipeline run.
 
     Usage:
-        store = RunStore(base_dir=Path(".agn"))
+        store = RunStore(base_dir=Path(".agent-native-workflow"))
         store.start_run(config_snapshot={...})
 
         # Each phase writes to the store:
@@ -86,7 +89,7 @@ class RunStore:
         b_review_path = store.b_review_path(iteration=1)  # pass to Agent C's prompt
     """
 
-    BASE_DIR_NAME = ".agn"
+    BASE_DIR_NAME = ".agent-native-workflow"
 
     def __init__(self, base_dir: Path | None = None) -> None:
         self._base = base_dir or Path(self.BASE_DIR_NAME)

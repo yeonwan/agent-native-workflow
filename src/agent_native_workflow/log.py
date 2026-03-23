@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 
@@ -11,9 +12,15 @@ class Logger:
     """Pipeline logger with text and JSON Lines modes.
 
     Writes to both stdout and an optional log file.
+    Optionally forwards each line to an on_log callback (e.g. RichVisualizer.on_log).
     """
 
-    def __init__(self, log_file: Path | None = None, json_mode: bool | None = None) -> None:
+    def __init__(
+        self,
+        log_file: Path | None = None,
+        json_mode: bool | None = None,
+        on_log: Callable[[str], None] | None = None,
+    ) -> None:
         self._log_file = log_file
         self._json_mode = (
             json_mode
@@ -21,9 +28,14 @@ class Logger:
             else (os.environ.get("LOG_FORMAT", "").lower() == "json")
         )
         self._start_time = time.time()
+        self._on_log = on_log
 
         if log_file:
             log_file.parent.mkdir(parents=True, exist_ok=True)
+
+    def set_log_callback(self, callback: Callable[[str], None]) -> None:
+        """Wire a sink (e.g. visualizer.on_log) after construction."""
+        self._on_log = callback
 
     def info(self, message: str, **extra: object) -> None:
         self._emit("info", message, **extra)
@@ -62,6 +74,12 @@ class Logger:
             line = f"[{ts}] {message}"
 
         print(line, file=sys.stderr if level == "warn" else sys.stdout)
+
+        if self._on_log:
+            try:
+                self._on_log(line)
+            except Exception:
+                pass  # never let visualizer errors break the pipeline
 
         if self._log_file:
             with self._log_file.open("a") as f:
