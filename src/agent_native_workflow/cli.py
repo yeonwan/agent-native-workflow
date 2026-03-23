@@ -299,7 +299,8 @@ criteria:
   - All requirements in requirements.md implemented
   - Lint passes
   - All existing tests pass
-  - New tests cover the happy path and at least one error case
+# Add test criteria only if the requirements explicitly ask for tests:
+# - New tests cover the happy path and at least one error case
 """)
         print(f"Created {prompt_file}")
     else:

@@ -187,16 +187,21 @@ def _run_implementation_phase(
     On iteration 2+: receives structured context built from all previous iterations'
                      gate results, feedback, and failure reasons.
     """
+    # Injected into every Agent A prompt regardless of iteration
+    _AGENT_A_SYSTEM = (
+        "> **PIPELINE RULES — read before acting**\n"
+        "> - Requirements file: `{requirements_file}`\n"
+        "> - Do NOT run `git commit`, `git push`, or any git write command.\n"
+        ">   The pipeline manages git state. Only read and edit files.\n"
+        "> - Do NOT add tests unless the requirements explicitly ask for them.\n"
+        "> - When done, output `LOOP_COMPLETE` on its own line.\n\n"
+    )
+
     effective_prompt_file = prompt_file if (prompt_file and prompt_file.is_file()) else None
 
     if iteration == 1:
         if effective_prompt_file:
             prompt_text = load_prompt(effective_prompt_file)
-            # Inject actual requirements path so Agent A knows where to find it
-            prompt_text = (
-                f"**Requirements file**: `{requirements_file}`\n\n"
-                + prompt_text
-            )
         else:
             # No PROMPT file — use requirements as the full task spec for Agent A
             logger.info("[Phase 1] No PROMPT file found — using requirements as task spec")
@@ -204,6 +209,8 @@ def _run_implementation_phase(
     else:
         source_file = effective_prompt_file or requirements_file
         prompt_text = store.build_agent_a_context(iteration, source_file)
+
+    prompt_text = _AGENT_A_SYSTEM.format(requirements_file=requirements_file) + prompt_text
 
     output = runner.run(prompt_text, timeout=timeout, max_retries=max_retries, logger=logger)
     store.write_agent_output(iteration, output)
