@@ -15,6 +15,7 @@ Structure:
             ├── iter-001/
             │   ├── a-output.md        (Agent A raw output)
             │   ├── gates.json         (structured gate results)
+            │   ├── review.md          (Agent R — review verification mode)
             │   ├── b-review.md        (Agent B senior dev review)
             │   ├── c-report.md        (Agent C PM acceptance report)
             │   ├── b-confirm.md       (Agent B consensus confirmation)
@@ -237,6 +238,16 @@ Rules:
     def b_confirmation_path(self, iteration: int) -> Path:
         return self.iter_dir(iteration) / "b-confirm.md"
 
+    # ── Agent R (review verification mode) ───────────────────────────────────
+
+    def write_review(self, iteration: int, content: str) -> Path:
+        path = self.iter_dir(iteration) / "review.md"
+        path.write_text(content)
+        return path
+
+    def review_path(self, iteration: int) -> Path:
+        return self.iter_dir(iteration) / "review.md"
+
     # ── Feedback ──────────────────────────────────────────────────────────────
 
     def write_feedback(
@@ -287,9 +298,13 @@ Rules:
 
         Returns a dict with keys:
           - run_id (str): the run directory name
+          - verification_mode (str): from manifest ``config.verification``, or ``unknown``
           - manifest (dict): contents of manifest.json (run_id, started_at, config)
           - metrics (dict | None): contents of metrics.json, or None if absent
-          - iterations (list[dict]): per-iteration gate/feedback data from iter-NNN dirs
+          - iterations (list[dict]): per-iteration data; each item may include
+            ``verification_kind`` (review / triangulation / empty),
+            ``verification_result`` (from metrics when present),
+            ``gate_results``, ``outcome``
 
         Returns None if the requested run directory does not exist.
         """
@@ -321,6 +336,13 @@ Rules:
             except Exception:
                 pass
 
+        cfg_snap = manifest.get("config") if isinstance(manifest, dict) else None
+        verification_mode = "unknown"
+        if isinstance(cfg_snap, dict):
+            v = str(cfg_snap.get("verification", "") or "").strip()
+            if v:
+                verification_mode = v
+
         # per-iteration data
         iterations: list[dict[str, object]] = []
         iter_dirs = sorted(run_dir.glob("iter-[0-9][0-9][0-9]"))
@@ -350,16 +372,36 @@ Rules:
                 elif "security_fail" in feedback_text:
                     outcome = IterationOutcome.SECURITY_FAIL.value
 
+            has_review = (iter_dir / "review.md").is_file()
+            has_b = (iter_dir / "b-review.md").is_file()
+            has_c = (iter_dir / "c-report.md").is_file()
+            if has_review:
+                verification_kind = "review"
+            elif has_b or has_c:
+                verification_kind = "triangulation"
+            else:
+                verification_kind = ""
+
+            verification_result = ""
+            if metrics:
+                for im in metrics.get("iterations") or []:
+                    if isinstance(im, dict) and im.get("iteration") == iter_num:
+                        verification_result = str(im.get("verification_result", "") or "")
+                        break
+
             iterations.append(
                 {
                     "iteration": iter_num,
                     "gate_results": gate_results,
                     "outcome": outcome,
+                    "verification_kind": verification_kind,
+                    "verification_result": verification_result,
                 }
             )
 
         return {
             "run_id": run_dir.name,
+            "verification_mode": verification_mode,
             "manifest": manifest,
             "metrics": metrics,
             "iterations": iterations,

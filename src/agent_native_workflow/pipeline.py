@@ -30,7 +30,7 @@ from agent_native_workflow.runners.base import AgentRunner
 from agent_native_workflow.runners.copilot import apply_text_output
 from agent_native_workflow.runners.factory import runner_for
 from agent_native_workflow.store import RunStore
-from agent_native_workflow.verify import run_triangular_verification
+from agent_native_workflow.strategies.factory import build_verification_strategy
 from agent_native_workflow.visualization.base import PipelinePhase, Visualizer
 from agent_native_workflow.visualization.plain import PlainVisualizer
 
@@ -236,11 +236,15 @@ def run_pipeline(
     custom_gates: list[tuple[str, Callable[[], tuple[bool, str]]]] | None = None,
     runner: AgentRunner | None = None,
     verify_runner: AgentRunner | None = None,
+    review_runner: AgentRunner | None = None,
     c_runner: AgentRunner | None = None,
     visualizer: Visualizer | None = None,
     workflow_config: WorkflowConfig | None = None,
 ) -> bool:
-    """Run the AI-native workflow pipeline (A → quality gates → B+C triangulation).
+    """Run the AI-native workflow pipeline (A → quality gates → verification).
+
+    Verification mode comes from ``WorkflowConfig.verification`` (none / review /
+    triangulation).
 
     All agent communication goes through RunStore:
     - Each run is isolated in a timestamped directory
@@ -250,11 +254,11 @@ def run_pipeline(
 
     Args:
         store: RunStore instance. If None, creates one at .agent-native-workflow/.
-        runner: AgentRunner for ALL agents (A, B, C use the same CLI provider).
+        runner: AgentRunner for Agent A; verify/review/c runners for verification phases.
         workflow_config: WorkflowConfig — determines cli_provider and other settings.
 
     Returns:
-        True if the pipeline converged (gates + triangulation passed).
+        True if the pipeline converged (gates + configured verification passed).
     """
     wcfg = workflow_config or WorkflowConfig.resolve()
 
@@ -280,12 +284,21 @@ def run_pipeline(
         )
 
     if verify_runner is None:
-        # Agent B: blind code reviewer
+        # Agent B: triangulation senior dev
         verify_runner = runner_for(
             wcfg.cli_provider,
             allowed_tools=agent_cfg.agent_b.allowed_tools,
             permission_mode=agent_cfg.agent_b.permission_mode,
             **_model_for(agent_cfg.agent_b.model, wcfg.model_verify or wcfg.model),
+        )
+
+    if review_runner is None:
+        # Agent R: review-mode requirements + code reviewer
+        review_runner = runner_for(
+            wcfg.cli_provider,
+            allowed_tools=agent_cfg.agent_r.allowed_tools,
+            permission_mode=agent_cfg.agent_r.permission_mode,
+            **_model_for(agent_cfg.agent_r.model, wcfg.model_verify or wcfg.model),
         )
 
     if c_runner is None:
@@ -303,7 +316,9 @@ def run_pipeline(
         "max_iterations": max_iterations,
         "prompt_file": str(prompt_file),
         "requirements_file": str(requirements_file),
+        "verification": wcfg.verification,
         "model_a": agent_cfg.agent_a.model or wcfg.model,
+        "model_r": agent_cfg.agent_r.model or wcfg.model_verify or wcfg.model,
         "model_b": agent_cfg.agent_b.model or wcfg.model_verify or wcfg.model,
         "model_c": agent_cfg.agent_c.model or wcfg.model_verify or wcfg.model,
     }
@@ -361,6 +376,7 @@ def run_pipeline(
     logger.info(f"=== agent-native-workflow (provider: {runner.provider_name}) ===")
     logger.info(cfg.print_config())
     logger.info(f"Max iterations: {max_iterations}")
+    logger.info(f"Verification: {wcfg.verification}")
     logger.info(f"Prompt: {prompt_file}")
     logger.info(f"Requirements: {requirements_file}")
     logger.info(f"Run dir: {run_dir}")
@@ -461,7 +477,7 @@ def run_pipeline(
             if shutdown_requested:
                 break
 
-            # ── Phase 3: Triangular Verification (B + C + B consensus) ────────
+            # ── Phase 3: Verification (strategy: none / review / triangulation) ─
             logger.phase_start("phase3_triangular_verify", iteration=iteration)
             visualizer.on_phase_start(PipelinePhase.TRIANGULAR_VERIFY)
 
@@ -469,7 +485,14 @@ def run_pipeline(
             if prompt_file:
                 task_title = load_prompt_title(prompt_file)
 
-            passed, verify_feedback = run_triangular_verification(
+            strategy = build_verification_strategy(
+                wcfg.verification,
+                verify_runner=verify_runner,
+                c_runner=c_runner,
+                review_runner=review_runner,
+                task_title=task_title,
+            )
+            verif_result = strategy.run(
                 requirements_file=agents_requirements_file,
                 store=store,
                 iteration=iteration,
@@ -477,20 +500,16 @@ def run_pipeline(
                 timeout=agent_timeout,
                 max_retries=max_retries,
                 logger=logger,
-                runner=verify_runner,
-                c_runner=c_runner,
-                task_title=task_title,
             )
 
-            if passed:
+            if verif_result.passed:
                 iter_metrics.verification_status = GateStatus.PASS
                 logger.phase_end("phase3_triangular_verify", "pass", iteration=iteration)
                 visualizer.on_phase_end(PipelinePhase.TRIANGULAR_VERIFY, "pass")
             else:
                 iter_metrics.verification_status = GateStatus.FAIL
-                feedback_content = (
-                    verify_feedback
-                    or "Triangular verification failed but no report found."
+                feedback_content = verif_result.feedback or (
+                    "Verification failed but no report was produced."
                 )
                 store.write_feedback(
                     iteration,

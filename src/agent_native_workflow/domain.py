@@ -5,6 +5,12 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from agent_native_workflow.detect import ProjectConfig
+    from agent_native_workflow.log import Logger
+    from agent_native_workflow.store import RunStore
 
 
 class GateStatus(enum.Enum):
@@ -16,7 +22,7 @@ class GateStatus(enum.Enum):
 
 @dataclass
 class AgentPermissions:
-    """Permissions for a specific agent (A, B, or C)."""
+    """Permissions for a specific agent (A, R, B, or C)."""
 
     allowed_tools: list[str] = field(default_factory=list)
     permission_mode: str = "bypassPermissions"
@@ -38,6 +44,8 @@ _AGENT_A_BASE = [
     "Bash(git:log)", "Grep", "Glob",
 ]
 _AGENT_B_TOOLS = ["Read", "Grep", "Glob", "Bash(git:diff)", "Bash(git:log)"]
+# Agent R (review mode): read requirements + code; same tool set as B per REDESIGN.
+_AGENT_R_TOOLS = ["Read", "Grep", "Glob", "Bash(git:diff)", "Bash(git:log)"]
 _AGENT_C_TOOLS = ["Read"]
 
 # Build tools added on top of _AGENT_A_BASE, keyed by project_type
@@ -55,21 +63,25 @@ _AGENT_A_BUILD_TOOLS: dict[str, list[str]] = {
 _DEFAULT_MODELS: dict[str, dict[str, str]] = {
     "claude": {
         "agent_a": "claude-opus-4-6",       # implementer: most capable
-        "agent_b": "claude-sonnet-4-6",     # reviewer: balanced
-        "agent_c": "claude-haiku-4-5-20251001",  # judge: fast, cheap
+        "agent_r": "claude-sonnet-4-6",    # review mode: balanced
+        "agent_b": "claude-sonnet-4-6",     # triangulation B
+        "agent_c": "claude-haiku-4-5-20251001",  # triangulation C
     },
     "copilot": {
         "agent_a": "",  # copilot manages its own model selection
+        "agent_r": "",
         "agent_b": "",
         "agent_c": "",
     },
     "codex": {
         "agent_a": "o4-mini",
+        "agent_r": "o4-mini",
         "agent_b": "o4-mini",
         "agent_c": "o4-mini",
     },
     "cursor": {
         "agent_a": "",  # cursor manages its own model selection
+        "agent_r": "",
         "agent_b": "",
         "agent_c": "",
     },
@@ -80,8 +92,8 @@ def agent_config_for(project_type: str, cli_provider: str = "claude") -> AgentCo
     """Build an AgentConfig with allowed tools and default models for the given CLI provider.
 
     Agent A gets base tools + build/test tools specific to the project type.
-    Agent B gets read-only tools (code review, git history).
-    Agent C gets Read only (compares requirements vs review, never touches code).
+    Agent R gets read-only tools for ``verification: review``.
+    Agent B/C get triangulation roles (blind review + PM judge).
     """
     build_tools = _AGENT_A_BUILD_TOOLS.get(project_type, ["Bash(make:*)"])
     agent_a_tools = _AGENT_A_BASE + build_tools
@@ -93,6 +105,11 @@ def agent_config_for(project_type: str, cli_provider: str = "claude") -> AgentCo
             allowed_tools=agent_a_tools,
             permission_mode="bypassPermissions",
             model=models["agent_a"],
+        ),
+        agent_r=AgentPermissions(
+            allowed_tools=_AGENT_R_TOOLS,
+            permission_mode="bypassPermissions",
+            model=models["agent_r"],
         ),
         agent_b=AgentPermissions(
             allowed_tools=_AGENT_B_TOOLS,
@@ -109,11 +126,17 @@ def agent_config_for(project_type: str, cli_provider: str = "claude") -> AgentCo
 
 @dataclass
 class AgentConfig:
-    """Configuration for all agents in the pipeline."""
+    """Configuration for all agents in the pipeline (A, R for review, B/C for triangulation)."""
 
     agent_a: AgentPermissions = field(
         default_factory=lambda: AgentPermissions(
             allowed_tools=_AGENT_A_BASE + _AGENT_A_BUILD_TOOLS["python"],
+            permission_mode="bypassPermissions",
+        )
+    )
+    agent_r: AgentPermissions = field(
+        default_factory=lambda: AgentPermissions(
+            allowed_tools=_AGENT_R_TOOLS,
             permission_mode="bypassPermissions",
         )
     )
@@ -132,6 +155,7 @@ class AgentConfig:
     def to_dict(self) -> dict[str, object]:
         return {
             "agent_a": self.agent_a.to_dict(),
+            "agent_r": self.agent_r.to_dict(),
             "agent_b": self.agent_b.to_dict(),
             "agent_c": self.agent_c.to_dict(),
         }
@@ -151,7 +175,40 @@ class IterationOutcome(enum.Enum):
 
 TRIANGULAR_PASS_MARKER = "TRIANGULAR_PASS"
 CONSENSUS_AGREE_MARKER = "CONSENSUS_AGREE"
+REVIEW_APPROVE_MARKER = "REVIEW_APPROVE"
 SECURITY_AGENT_PASS_MARKER = "SECURITY_AGENT_PASS"
+
+
+@dataclass
+class VerificationResult:
+    """Outcome of a post-gate verification strategy (review, triangulation, etc.).
+
+    When ``passed`` is False, ``feedback`` is the text passed to Agent A on the
+    next iteration (same role as prior ``c-report`` / verify feedback).
+    """
+
+    passed: bool
+    feedback: str = ""
+
+
+class VerificationStrategy(Protocol):
+    """Pluggable verification after quality gates pass (Phase 1 redesign).
+
+    Implementations may hold runners, prompts, etc. in ``__init__``; ``run`` only
+    receives per-iteration inputs shared by the pipeline.
+    """
+
+    def run(
+        self,
+        requirements_file: Path,
+        store: RunStore,
+        iteration: int,
+        config: ProjectConfig,
+        timeout: int,
+        max_retries: int,
+        logger: Logger,
+    ) -> VerificationResult: ...
+
 
 GateFunction = Callable[[], tuple[bool, str]]
 

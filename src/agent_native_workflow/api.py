@@ -38,6 +38,7 @@ class Workflow:
         self._store: RunStore | None = None
         self._runner: AgentRunner | None = None
         self._verify_runner: AgentRunner | None = None
+        self._review_runner: AgentRunner | None = None
         self._visualizer: Visualizer | None = None
         self._logger: Logger | None = None
         self._project_config: ProjectConfig | None = None
@@ -80,12 +81,22 @@ class Workflow:
         self._config.model_verify = model
         return self
 
+    def with_verification(self, mode: str) -> Workflow:
+        """Post-gate mode: ``none``, ``review``, or ``triangulation``."""
+        self._config.verification = mode
+        return self
+
     def with_runner(self, runner: AgentRunner) -> Workflow:
         self._runner = runner
         return self
 
     def with_verify_runner(self, runner: AgentRunner) -> Workflow:
         self._verify_runner = runner
+        return self
+
+    def with_review_runner(self, runner: AgentRunner) -> Workflow:
+        """Override Agent R runner (``verification: review``)."""
+        self._review_runner = runner
         return self
 
     def with_visualizer(self, visualizer: Visualizer) -> Workflow:
@@ -124,6 +135,7 @@ class Workflow:
             custom_gates=self._custom_gates or None,
             runner=self._runner,
             verify_runner=self._verify_runner,
+            review_runner=self._review_runner,
             visualizer=self._visualizer,
             workflow_config=self._config,
         )

@@ -20,6 +20,7 @@ _KEY_MAP: dict[str, str] = {
     "visualization": "visualization",
     "lint-cmd": "lint_cmd",
     "test-cmd": "test_cmd",
+    "verification": "verification",
 }
 
 _ENV_MAP: dict[str, str] = {
@@ -36,6 +37,7 @@ _ENV_MAP: dict[str, str] = {
     "VISUALIZATION": "visualization",
     "LINT_CMD": "lint_cmd",
     "TEST_CMD": "test_cmd",
+    "VERIFICATION": "verification",
 }
 
 _INT_FIELDS = {"max_iterations", "timeout", "max_retries"}
@@ -102,6 +104,9 @@ class WorkflowConfig:
     lint_cmd: str = ""
     test_cmd: str = ""
 
+    # Post-gate verification: none | review | triangulation
+    verification: str = "review"
+
     agent_config: AgentConfig | None = field(default=None, repr=False)
 
     @staticmethod
@@ -116,17 +121,33 @@ class WorkflowConfig:
             import yaml  # type: ignore[import-untyped]
             data = yaml.safe_load(config_file.read_text(encoding="utf-8")) or {}
 
-            def _load_perms(agent_data: dict[str, object]) -> AgentPermissions:
+            blank = AgentConfig()
+
+            def _merge_agent(
+                raw: object, fallback: AgentPermissions
+            ) -> AgentPermissions:
+                if not isinstance(raw, dict) or not raw:
+                    return AgentPermissions(
+                        allowed_tools=list(fallback.allowed_tools),
+                        permission_mode=fallback.permission_mode,
+                        model=fallback.model,
+                    )
+                tools = raw.get("allowed_tools")
+                if tools is None:
+                    tools = fallback.allowed_tools
                 return AgentPermissions(
-                    allowed_tools=agent_data.get("allowed_tools", []),  # type: ignore[arg-type]
-                    permission_mode=agent_data.get("permission_mode", "bypassPermissions"),  # type: ignore[arg-type]
-                    model=str(agent_data.get("model", "")),
+                    allowed_tools=list(tools),  # type: ignore[arg-type]
+                    permission_mode=str(
+                        raw.get("permission_mode", fallback.permission_mode)
+                    ),
+                    model=str(raw.get("model", fallback.model)),
                 )
 
             return AgentConfig(
-                agent_a=_load_perms(data.get("agent_a", {})),  # type: ignore[arg-type]
-                agent_b=_load_perms(data.get("agent_b", {})),  # type: ignore[arg-type]
-                agent_c=_load_perms(data.get("agent_c", {})),  # type: ignore[arg-type]
+                agent_a=_merge_agent(data.get("agent_a"), blank.agent_a),
+                agent_r=_merge_agent(data.get("agent_r"), blank.agent_r),
+                agent_b=_merge_agent(data.get("agent_b"), blank.agent_b),
+                agent_c=_merge_agent(data.get("agent_c"), blank.agent_c),
             )
         except Exception:
             return AgentConfig()

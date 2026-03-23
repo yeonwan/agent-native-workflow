@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from pathlib import Path
 
 
@@ -28,6 +29,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
         explicit["model"] = args.model
     if args.model_verify:
         explicit["model_verify"] = args.model_verify
+    if getattr(args, "verification", None):
+        explicit["verification"] = args.verification
     if args.no_ui:
         explicit["visualization"] = "plain"
 
@@ -99,12 +102,16 @@ def _cmd_run(args: argparse.Namespace) -> int:
 def _cmd_verify(args: argparse.Namespace) -> int:
     from agent_native_workflow.config import WorkflowConfig
     from agent_native_workflow.detect import detect_all
+    from agent_native_workflow.domain import AgentConfig
     from agent_native_workflow.log import Logger
     from agent_native_workflow.runners.factory import runner_for
     from agent_native_workflow.store import RunStore
-    from agent_native_workflow.verify import run_triangular_verification
+    from agent_native_workflow.strategies.factory import build_verification_strategy
 
-    wcfg = WorkflowConfig.resolve()
+    explicit: dict[str, object] = {}
+    if getattr(args, "verification", None):
+        explicit["verification"] = args.verification
+    wcfg = WorkflowConfig.resolve(explicit=explicit)
     requirements_file = Path(args.requirements or wcfg.requirements_file or "requirements.md")
 
     if not requirements_file.is_file():
@@ -113,13 +120,48 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 
     base_dir = Path(args.output_dir) if args.output_dir else Path(".agent-native-workflow")
     store = RunStore(base_dir=base_dir)
-    store.start_run(config_snapshot={"cli_provider": wcfg.cli_provider})
+    store.start_run(
+        config_snapshot={
+            "cli_provider": wcfg.cli_provider,
+            "verification": wcfg.verification,
+        }
+    )
 
     logger = Logger()
     cfg = detect_all(base_branch=args.base_branch or wcfg.base_branch)
-    runner = runner_for(wcfg.cli_provider, **({"model": wcfg.model} if wcfg.model else {}))
+    agent_cfg = wcfg.agent_config or AgentConfig()
 
-    passed, _ = run_triangular_verification(
+    def _model_for(perms_model: str, global_override: str) -> dict[str, object]:
+        m = global_override or perms_model
+        return {"model": m} if m else {}
+
+    verify_runner = runner_for(
+        wcfg.cli_provider,
+        allowed_tools=agent_cfg.agent_b.allowed_tools,
+        permission_mode=agent_cfg.agent_b.permission_mode,
+        **_model_for(agent_cfg.agent_b.model, wcfg.model_verify or wcfg.model),
+    )
+    review_runner = runner_for(
+        wcfg.cli_provider,
+        allowed_tools=agent_cfg.agent_r.allowed_tools,
+        permission_mode=agent_cfg.agent_r.permission_mode,
+        **_model_for(agent_cfg.agent_r.model, wcfg.model_verify or wcfg.model),
+    )
+    c_runner = runner_for(
+        wcfg.cli_provider,
+        allowed_tools=agent_cfg.agent_c.allowed_tools,
+        permission_mode=agent_cfg.agent_c.permission_mode,
+        **_model_for(agent_cfg.agent_c.model, wcfg.model_verify or wcfg.model),
+    )
+
+    strategy = build_verification_strategy(
+        wcfg.verification,
+        verify_runner=verify_runner,
+        c_runner=c_runner,
+        review_runner=review_runner,
+        task_title="",
+    )
+    result = strategy.run(
         requirements_file=requirements_file,
         store=store,
         iteration=1,
@@ -127,9 +169,8 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         timeout=args.timeout or wcfg.timeout,
         max_retries=wcfg.max_retries,
         logger=logger,
-        runner=runner,
     )
-    return 0 if passed else 1
+    return 0 if result.passed else 1
 
 
 def _cmd_status(args: argparse.Namespace) -> int:
@@ -173,10 +214,12 @@ def _cmd_status(args: argparse.Namespace) -> int:
     metrics: dict | None = summary.get("metrics")  # type: ignore[assignment]
     iterations: list = summary.get("iterations") or []  # type: ignore[assignment]
     config_snap: dict = manifest.get("config") or {}  # type: ignore[assignment]
+    verification_mode = str(summary.get("verification_mode") or "unknown")
 
     # Header
     print(f"Run ID    : {summary['run_id']}")
     print(f"Started   : {manifest.get('started_at', 'unknown')}")
+    print(f"Verification: {verification_mode}")
 
     # Config snapshot details
     if config_snap:
@@ -184,9 +227,12 @@ def _cmd_status(args: argparse.Namespace) -> int:
         if cli_provider:
             print(f"Provider  : {cli_provider}")
         model_a = config_snap.get("model", "") or config_snap.get("model_a", "")
+        model_r = config_snap.get("model_r", "")
         model_b = config_snap.get("model_verify", "") or config_snap.get("model_b", "")
         if model_a:
             print(f"Model A   : {model_a}")
+        if model_r:
+            print(f"Model R   : {model_r}")
         if model_b:
             print(f"Model B/C : {model_b}")
 
@@ -205,8 +251,9 @@ def _cmd_status(args: argparse.Namespace) -> int:
     # Per-iteration table
     if iterations:
         print()
-        print(f"{'Iter':<6} {'Lint':<8} {'Test':<8} {'Verify':<10} {'Outcome'}")
-        print("-" * 50)
+        hdr = f"{'Iter':<6} {'Lint':<8} {'Test':<8} {'Verify':<10} {'Kind':<14} {'Outcome'}"
+        print(hdr)
+        print("-" * len(hdr))
         for it in iterations:
             gate_map: dict[str, str] = {}
             for g in it.get("gate_results") or []:
@@ -214,16 +261,15 @@ def _cmd_status(args: argparse.Namespace) -> int:
             lint_s = gate_map.get("lint", "skipped")
             test_s = gate_map.get("test", "skipped")
 
-            # verification result from metrics if available
-            verify_s = "skipped"
-            if metrics:
-                for iter_m in metrics.get("iterations") or []:
-                    if iter_m.get("iteration") == it["iteration"]:
-                        verify_s = iter_m.get("verification_result", "skipped")
-                        break
+            verify_s = str(it.get("verification_result") or "").strip() or "skipped"
+            kind_s = str(it.get("verification_kind") or "").strip() or "—"
 
             outcome = it.get("outcome") or ""
-            print(f"{it['iteration']:<6} {lint_s:<8} {test_s:<8} {verify_s:<10} {outcome}")
+            row = (
+                f"{it['iteration']:<6} {lint_s:<8} {test_s:<8} "
+                f"{verify_s:<10} {kind_s:<14} {outcome}"
+            )
+            print(row)
 
     return 0
 
@@ -271,7 +317,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
 #
 # HOW THIS WORKS:
 #   - `title`, `build`, `criteria` are used by Agent A (implementer)
-#   - `requirements.md` (or --requirements <file>) is used by Agent B/C (verifiers)
+#   - `requirements.md` (or --requirements <file>) is used for verification (review / triangulation)
 #   - If you delete this file, Agent A will read requirements.md directly instead
 #
 # TIP: If your Jira ticket already describes everything, you can skip this file
@@ -299,7 +345,7 @@ build: |
 # notes: |
 #   See docs/architecture.md for system overview.
 
-# Completion checklist — checked by quality gates and triangular verification.
+# Completion checklist — checked by quality gates; align with config verification mode.
 criteria:
   - All requirements in requirements.md implemented
   - Lint passes
@@ -317,7 +363,7 @@ criteria:
 # Requirements: <Feature Title>
 
 <!--
-  This is the source of truth for Agent B (blind reviewer) and Agent C (judge).
+  Source of truth for verification (review mode: Agent R; triangulation: B/C).
   Write each requirement as a testable statement.
   Tip: you can replace this file with a Jira ticket (.docx or .pdf) using:
        agn run --requirements path/to/PROJ-123.docx
@@ -380,9 +426,16 @@ criteria:
 # Edit this file to customize the workflow for this project.
 # All settings are optional — defaults are auto-detected from the project.
 
-# CLI provider to use for all agents (A, B, C).
+# CLI provider for all agents (A, R, B, C).
 # Options: claude, copilot, codex, cursor
 cli-provider: claude
+
+# Verification strategy after quality gates pass.
+# Options: none, review, triangulation
+#   none           — gates only (fastest; strong test suites)
+#   review         — Agent R checks requirements vs changed files (recommended default)
+#   triangulation  — B→C→B multi-agent consensus (thorough, slower)
+verification: review
 
 # Quality gate commands.
 # Auto-detected from project type ({project_type}):
@@ -417,72 +470,214 @@ cli-provider: claude
     print("Next steps:")
     print(f"  1. Edit {prompt_file} — describe what to build")
     print(f"  2. Edit {requirements_file} — list testable requirements")
-    print("  3. Run: agn run --cli <provider>")
-    print("     Or with a Jira ticket: agn run --requirements PROJ-123.docx")
+    print("  3. Set verification in config.yaml (none / review / triangulation)")
+    print("  4. Run: agn run --cli <provider>")
+    print("     Or: agn run --requirements path/to/ticket.docx")
     return 0
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+def build_parser() -> ArgumentParser:
+    parser = ArgumentParser(
         prog="agent-native-workflow",
-        description="AI-native triangulation workflow — multi-CLI, real-time visualization",
+        formatter_class=RawDescriptionHelpFormatter,
+        description=(
+            "AI-native feature delivery pipeline: Agent A implements from your prompt and "
+            "requirements, runs lint/tests, then optional verification (none, single-agent "
+            "review, or triangulation). Backends: Claude Code, GitHub Copilot CLI, OpenAI "
+            "Codex, Cursor."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  agn init && agn run --cli claude\n"
+            "  agn run --verification none --no-ui\n"
+            "  agn verify --verification triangulation\n"
+            "  agn status --list\n"
+            "\n"
+            "See README.md for verification modes and configuration."
+        ),
     )
     parser.add_argument("--version", action="version", version="agent-native-workflow 0.1.0")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # run
-    run_p = sub.add_parser("run", help="Run the full A→B→C pipeline")
+    run_p = sub.add_parser(
+        "run",
+        formatter_class=RawDescriptionHelpFormatter,
+        help="Full pipeline: implement → gates → verification; loop until done",
+        description=(
+            "Runs Agent A, then lint/test gates, then the verification strategy from "
+            "config (or --verification). On failure, writes feedback and repeats up to "
+            "--max-iterations."
+        ),
+    )
     run_p.add_argument(
         "--cli",
         default=None,
-        help="CLI provider: copilot (default), claude, codex, cursor",
+        metavar="PROVIDER",
+        help="CLI backend: claude | copilot | codex | cursor (config default if omitted)",
     )
-    run_p.add_argument("--prompt", default=None, help="Path to Agent A prompt (PROMPT.md)")
     run_p.add_argument(
-        "--requirements", default=None, help="Path to requirements doc (requirements.md)"
+        "--prompt",
+        default=None,
+        metavar="PATH",
+        help="Agent A prompt file (default: .agent-native-workflow/PROMPT.yaml)",
     )
-    run_p.add_argument("--output-dir", default=None, help="Artifacts directory")
-    run_p.add_argument("--max-iterations", type=int, default=None)
-    run_p.add_argument("--timeout", type=int, default=None, help="Per-agent timeout in seconds")
-    run_p.add_argument("--max-retries", type=int, default=None)
-    run_p.add_argument("--base-branch", default=None)
-    run_p.add_argument("--model", default=None, help="Model name (for providers that accept it)")
-    run_p.add_argument("--model-verify", default=None, help="Model for verification agents B+C")
-    run_p.add_argument("--no-ui", action="store_true", help="Disable Rich TUI, use plain output")
     run_p.add_argument(
-        "--parallel-gates", action="store_true", default=None, help="Run quality gates in parallel"
+        "--requirements",
+        default=None,
+        metavar="PATH",
+        help="Requirements doc for verification (default: .agent-native-workflow/requirements.md)",
+    )
+    run_p.add_argument(
+        "--output-dir",
+        default=None,
+        metavar="DIR",
+        help="Base dir for runs (default: .agent-native-workflow)",
+    )
+    run_p.add_argument(
+        "--max-iterations",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Max implement/verify cycles (default: from config, else 5)",
+    )
+    run_p.add_argument(
+        "--timeout",
+        type=int,
+        default=None,
+        metavar="SEC",
+        help="Timeout per agent subprocess (default: from config)",
+    )
+    run_p.add_argument(
+        "--max-retries",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Retries per agent call on failure (default: from config)",
+    )
+    run_p.add_argument(
+        "--base-branch",
+        default=None,
+        metavar="BRANCH",
+        help="Git base branch for change detection (default: from config)",
+    )
+    run_p.add_argument(
+        "--model",
+        default=None,
+        metavar="NAME",
+        help="Model for Agent A (providers that support --model)",
+    )
+    run_p.add_argument(
+        "--model-verify",
+        default=None,
+        metavar="NAME",
+        help=(
+            "Model for verification: agent_r (review mode) and agent_b/agent_c "
+            "(triangulation); falls back to --model if unset"
+        ),
+    )
+    run_p.add_argument(
+        "--verification",
+        choices=["none", "review", "triangulation"],
+        default=None,
+        metavar="MODE",
+        help=(
+            "Post-gate verification: none | review | triangulation "
+            "(default: config.yaml verification, else review)"
+        ),
+    )
+    run_p.add_argument(
+        "--no-ui",
+        action="store_true",
+        help="Plain-text log output instead of Rich TUI",
+    )
+    run_p.add_argument(
+        "--parallel-gates",
+        action="store_true",
+        default=None,
+        help="Run lint and test gates concurrently (env PARALLEL_GATES also works)",
     )
     run_p.add_argument(
         "--dry-run",
         action="store_true",
         default=False,
-        help="Print the exact prompt that would be sent to Agent A, then exit",
+        help="Print the Agent A prompt (header/footer) and exit; no agents or pipeline",
     )
 
     # verify
-    verify_p = sub.add_parser("verify", help="Run triangular verification only (B+C)")
-    verify_p.add_argument("--requirements", default=None)
-    verify_p.add_argument("--output-dir", default=None)
-    verify_p.add_argument("--base-branch", default=None)
-    verify_p.add_argument("--timeout", type=int, default=None)
+    verify_p = sub.add_parser(
+        "verify",
+        formatter_class=RawDescriptionHelpFormatter,
+        help="Run only the verification step (no Agent A, no gates)",
+        description=(
+            "Uses the same verification mode as the full pipeline (config or "
+            "--verification). Writes artifacts under .agent-native-workflow/runs/… "
+            "Requires a requirements file and detected project context."
+        ),
+    )
+    verify_p.add_argument(
+        "--requirements",
+        default=None,
+        metavar="PATH",
+        help="Requirements file (default: from config)",
+    )
+    verify_p.add_argument(
+        "--output-dir",
+        default=None,
+        metavar="DIR",
+        help="Artifact base directory (default: .agent-native-workflow)",
+    )
+    verify_p.add_argument(
+        "--base-branch",
+        default=None,
+        metavar="BRANCH",
+        help="Git base branch for changed-files detection",
+    )
+    verify_p.add_argument(
+        "--timeout",
+        type=int,
+        default=None,
+        metavar="SEC",
+        help="Per-agent timeout (default: from config)",
+    )
+    verify_p.add_argument(
+        "--verification",
+        choices=["none", "review", "triangulation"],
+        default=None,
+        metavar="MODE",
+        help=(
+            "none | review | triangulation (default: config.yaml verification, else review)"
+        ),
+    )
 
     # detect
-    sub.add_parser("detect", help="Print detected project configuration")
+    sub.add_parser(
+        "detect",
+        help="Print auto-detected project type, lint/test commands, and paths",
+    )
 
     # providers
-    sub.add_parser("providers", help="List available CLI providers and their status")
+    sub.add_parser(
+        "providers",
+        help="List CLI providers (claude, copilot, …) and whether the binary is available",
+    )
 
     # init
-    init_p = sub.add_parser("init", help="Scaffold PROMPT.md and requirements.md templates")
+    init_p = sub.add_parser(
+        "init",
+        help="Create .agent-native-workflow/ with PROMPT.yaml, requirements, config, agent-config",
+    )
     init_p.add_argument(
         "--cli",
         default=None,
-        help="CLI provider (claude, copilot, codex, cursor) — default models in agent-config.yaml",
+        metavar="PROVIDER",
+        help="Seed agent-config.yaml default models for this provider (claude, copilot, …)",
     )
 
     # status
     status_p = sub.add_parser(
-        "status", help="Show summary of the last (or a specific) pipeline run"
+        "status",
+        help="Show verification mode, gates, and per-iteration summary for a run",
     )
     status_p.add_argument(
         "--run",
@@ -499,7 +694,8 @@ def build_parser() -> argparse.ArgumentParser:
     status_p.add_argument(
         "--output-dir",
         default=None,
-        help="Artifacts directory (default: .agent-native-workflow)",
+        metavar="DIR",
+        help="Artifact base directory (default: .agent-native-workflow)",
     )
 
     return parser

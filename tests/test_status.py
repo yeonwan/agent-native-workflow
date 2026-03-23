@@ -42,6 +42,12 @@ def _make_run(
             (iter_dir / "gates.json").write_text(json.dumps(it["gate_results"]))
         if "feedback" in it:
             (iter_dir / "feedback.md").write_text(it["feedback"])
+        if it.get("review_md"):
+            (iter_dir / "review.md").write_text("review artifact")
+        if it.get("b_review_md"):
+            (iter_dir / "b-review.md").write_text("b review artifact")
+        if it.get("c_report_md"):
+            (iter_dir / "c-report.md").write_text("c report artifact")
 
     return run_dir
 
@@ -105,6 +111,64 @@ class TestLoadRunSummary:
         # verify outcome is inferred from feedback
         assert summary["iterations"][0]["outcome"] == "verify_fail"
         assert summary["iterations"][1]["outcome"] == ""
+        assert summary["verification_mode"] == "unknown"
+
+    def test_verification_mode_and_artifacts_from_disk(self, tmp_path):
+        run_id = "run-20260322-200000"
+        _make_run(
+            tmp_path,
+            run_id,
+            manifest={
+                "run_id": run_id,
+                "started_at": "2026-03-22T20:00:00",
+                "config": {"cli_provider": "claude", "verification": "review"},
+            },
+            metrics={
+                "converged": True,
+                "total_iterations": 1,
+                "iterations": [{"iteration": 1, "verification_result": "pass"}],
+            },
+            iterations=[
+                {
+                    "iteration": 1,
+                    "gate_results": [
+                        {"name": "lint", "status": "pass"},
+                        {"name": "test", "status": "pass"},
+                    ],
+                    "review_md": True,
+                },
+            ],
+        )
+        store = RunStore(base_dir=tmp_path)
+        summary = store.load_run_summary(run_id=run_id)
+        assert summary is not None
+        assert summary["verification_mode"] == "review"
+        assert summary["iterations"][0]["verification_kind"] == "review"
+        assert summary["iterations"][0]["verification_result"] == "pass"
+
+    def test_triangulation_artifacts_detected(self, tmp_path):
+        run_id = "run-20260322-210000"
+        _make_run(
+            tmp_path,
+            run_id,
+            manifest={
+                "run_id": run_id,
+                "config": {"verification": "triangulation"},
+            },
+            iterations=[
+                {
+                    "iteration": 1,
+                    "gate_results": [],
+                    "b_review_md": True,
+                    "c_report_md": True,
+                },
+            ],
+        )
+        store = RunStore(base_dir=tmp_path)
+        summary = store.load_run_summary(run_id=run_id)
+        assert summary is not None
+        assert summary["verification_mode"] == "triangulation"
+        assert summary["iterations"][0]["verification_kind"] == "triangulation"
 
     def test_summary_by_explicit_run_id(self, tmp_path):
         run_id = "run-20260322-130000"
@@ -195,6 +259,11 @@ class TestCmdStatus:
         run_dir = _make_run(
             tmp_path,
             run_id,
+            manifest={
+                "run_id": run_id,
+                "started_at": "2026-03-22T12:00:00",
+                "config": {"cli_provider": "claude", "verification": "none"},
+            },
             metrics={
                 "converged": True,
                 "total_iterations": 1,
@@ -210,6 +279,7 @@ class TestCmdStatus:
         captured = capsys.readouterr()
         assert run_id in captured.out
         assert "yes" in captured.out  # converged
+        assert "Verification: none" in captured.out
 
     def test_explicit_run_id_prints_correct_run(self, tmp_path, capsys):
         run_id = "run-20260322-130000"

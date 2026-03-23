@@ -8,7 +8,7 @@ packages = ["src/agent_native_workflow"]
 [project]
 name = "agent-native-workflow"
 version = "0.1.0"
-description = "Multi-CLI AI-native triangulation workflow with real-time visualization"
+description = "AI-native feature delivery pipeline: implement, quality gates, configurable verification, multi-CLI agents"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
