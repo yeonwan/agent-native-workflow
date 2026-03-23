@@ -65,9 +65,9 @@ def _read_docx(path: Path) -> str:
         from docx import Document  # type: ignore[import-untyped]
     except ImportError as exc:
         raise ImportError(
-            f"Reading .docx requires python-docx. Install it with:\n"
-            f"  pip install python-docx\n"
-            f"  # or: uv add python-docx"
+            "Reading .docx requires python-docx. Install it with:\n"
+            "  pip install python-docx\n"
+            "  # or: uv add python-docx"
         ) from exc
 
     doc = Document(str(path))
@@ -99,9 +99,9 @@ def _read_pdf(path: Path) -> str:
             from PyPDF2 import PdfReader  # type: ignore[import-untyped, no-redef]
         except ImportError as exc:
             raise ImportError(
-                f"Reading .pdf requires pypdf. Install it with:\n"
-                f"  pip install pypdf\n"
-                f"  # or: uv add pypdf"
+                "Reading .pdf requires pypdf. Install it with:\n"
+                "  pip install pypdf\n"
+                "  # or: uv add pypdf"
             ) from exc
 
     reader = PdfReader(str(path))

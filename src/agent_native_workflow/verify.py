@@ -114,7 +114,9 @@ If ALL requirements are met and no critical issues found, output exactly on its 
 Otherwise, list each issue that must be fixed."""
 
     _c_runner = c_runner or runner
-    output_c = _c_runner.run(agent_c_prompt, timeout=timeout, max_retries=max_retries, logger=logger)
+    output_c = _c_runner.run(
+        agent_c_prompt, timeout=timeout, max_retries=max_retries, logger=logger
+    )
     c_report_path = store.write_c_report(iteration, output_c)
     logger.info(f"Discrepancy report saved → {c_report_path}")
 

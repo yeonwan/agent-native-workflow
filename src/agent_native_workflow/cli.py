@@ -490,7 +490,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="List all runs newest-first",
     )
-    status_p.add_argument("--output-dir", default=None, help="Artifacts directory (default: .agent-native-workflow)")
+    status_p.add_argument(
+        "--output-dir",
+        default=None,
+        help="Artifacts directory (default: .agent-native-workflow)",
+    )
 
     return parser
 

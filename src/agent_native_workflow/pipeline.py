@@ -10,9 +10,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from agent_native_workflow.config import WorkflowConfig
-from agent_native_workflow.detect import ProjectConfig, detect_all, files_changed_since, snapshot_working_tree
-from agent_native_workflow.prompt_loader import load_prompt
-from agent_native_workflow.requirements_loader import is_text_format, load_requirements
+from agent_native_workflow.detect import (
+    ProjectConfig,
+    detect_all,
+    files_changed_since,
+    snapshot_working_tree,
+)
 from agent_native_workflow.domain import (
     GateResult,
     GateStatus,
@@ -21,6 +24,8 @@ from agent_native_workflow.domain import (
     PipelineMetrics,
 )
 from agent_native_workflow.log import Logger
+from agent_native_workflow.prompt_loader import load_prompt
+from agent_native_workflow.requirements_loader import is_text_format, load_requirements
 from agent_native_workflow.runners.base import AgentRunner
 from agent_native_workflow.runners.copilot import apply_text_output
 from agent_native_workflow.runners.factory import runner_for
@@ -392,7 +397,8 @@ def run_pipeline(
             agent_changed = files_changed_since(before_snapshot)
             if agent_changed:
                 cfg.changed_files = agent_changed
-                logger.info(f"[Phase 1] Agent A changed {len(agent_changed)} file(s): {', '.join(agent_changed[:10])}")
+                files_str = ", ".join(agent_changed[:10])
+                logger.info(f"[Phase 1] Agent A changed {len(agent_changed)} file(s): {files_str}")
             else:
                 logger.info("[Phase 1] No file changes detected from Agent A")
 

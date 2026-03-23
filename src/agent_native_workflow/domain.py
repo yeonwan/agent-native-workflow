@@ -33,7 +33,10 @@ class AgentPermissions:
 
 
 # Base tools every Agent A needs regardless of project type
-_AGENT_A_BASE = ["Read", "Edit", "Write", "Bash(git:status)", "Bash(git:diff)", "Bash(git:log)", "Grep", "Glob"]
+_AGENT_A_BASE = [
+    "Read", "Edit", "Write", "Bash(git:status)", "Bash(git:diff)",
+    "Bash(git:log)", "Grep", "Glob",
+]
 _AGENT_B_TOOLS = ["Read", "Grep", "Glob", "Bash(git:diff)", "Bash(git:log)"]
 _AGENT_C_TOOLS = ["Read"]
 
@@ -73,7 +76,7 @@ _DEFAULT_MODELS: dict[str, dict[str, str]] = {
 }
 
 
-def agent_config_for(project_type: str, cli_provider: str = "claude") -> "AgentConfig":
+def agent_config_for(project_type: str, cli_provider: str = "claude") -> AgentConfig:
     """Build an AgentConfig with allowed tools and default models for the given CLI provider.
 
     Agent A gets base tools + build/test tools specific to the project type.

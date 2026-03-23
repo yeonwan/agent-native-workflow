@@ -11,7 +11,6 @@ if TYPE_CHECKING:
     from agent_native_workflow.domain import PipelineMetrics
 
 try:
-    from rich.columns import Columns
     from rich.console import Console
     from rich.layout import Layout
     from rich.live import Live
@@ -90,7 +89,11 @@ class RichVisualizer:
         self._iteration = iteration
         self._max_iterations = max_iterations
         # Reset phase states for new iteration
-        for phase in (PipelinePhase.IMPLEMENT, PipelinePhase.QUALITY_GATES, PipelinePhase.TRIANGULAR_VERIFY):
+        for phase in (
+            PipelinePhase.IMPLEMENT,
+            PipelinePhase.QUALITY_GATES,
+            PipelinePhase.TRIANGULAR_VERIFY,
+        ):
             self._phase_states[phase] = "pending"
         self._refresh()
 

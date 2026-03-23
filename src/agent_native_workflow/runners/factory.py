@@ -49,7 +49,6 @@ def available_providers() -> list[dict[str, object]]:
     for name, cls in _REGISTRY.items():
         cli_cmd = cli_map.get(name, name)
         found = shutil.which(cli_cmd) is not None
-        instance = cls.__new__(cls)
         result.append(
             {
                 "provider": name,
