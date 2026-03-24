@@ -248,4 +248,44 @@ def build_parser() -> ArgumentParser:
         help="Artifact base directory (default: .agent-native-workflow)",
     )
 
+    # log
+    log_p = sub.add_parser(
+        "log",
+        help="Print run artifact contents (Agent A output, review, feedback, etc.)",
+    )
+    log_p.add_argument(
+        "--phase",
+        default="agent",
+        metavar="NAME",
+        help=(
+            "Which artifact to show: agent (default) | review | feedback | gates | "
+            "b-review | c-report | b-confirm"
+        ),
+    )
+    log_p.add_argument(
+        "--iter",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Show specific iteration N (default: latest)",
+    )
+    log_p.add_argument(
+        "--run",
+        default=None,
+        metavar="RUN_ID",
+        help="Show output from a specific run (default: latest)",
+    )
+    log_p.add_argument(
+        "--all-iters",
+        action="store_true",
+        default=False,
+        help="Print the phase artifact for every iteration in the run",
+    )
+    log_p.add_argument(
+        "--output-dir",
+        default=None,
+        metavar="DIR",
+        help="Artifact base directory (default: .agent-native-workflow)",
+    )
+
     return parser

@@ -12,6 +12,7 @@ __all__ = [
     "main",
     "_cmd_detect",
     "_cmd_init",
+    "_cmd_log",
     "_cmd_providers",
     "_cmd_run",
     "_cmd_status",
@@ -36,6 +37,7 @@ _cmd_run = COMMAND_DISPATCH["run"]
 _cmd_verify = COMMAND_DISPATCH["verify"]
 _cmd_status = COMMAND_DISPATCH["status"]
 _cmd_detect = COMMAND_DISPATCH["detect"]
+_cmd_log = COMMAND_DISPATCH["log"]
 _cmd_providers = COMMAND_DISPATCH["providers"]
 _cmd_init = COMMAND_DISPATCH["init"]
 
