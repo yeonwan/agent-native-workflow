@@ -269,6 +269,7 @@ def run_pipeline(
     converged = False
     agent_a_session: str | None = None
     agent_r_session: str | None = None
+    consecutive_no_change = 0
 
     try:
         for iteration in range(1, max_iterations + 1):
@@ -307,13 +308,49 @@ def run_pipeline(
             # Update changed_files to only what Agent A touched this iteration
             agent_changed = files_changed_since(before_snapshot)
             if agent_changed:
+                consecutive_no_change = 0
                 cfg.changed_files = agent_changed
                 files_str = ", ".join(agent_changed[:10])
                 logger.info(f"[Phase 1] Agent A changed {len(agent_changed)} file(s): {files_str}")
             else:
-                logger.info("[Phase 1] No file changes detected from Agent A")
+                consecutive_no_change += 1
+                logger.warn(
+                    f"[Phase 1] No file changes detected from Agent A "
+                    f"(consecutive: {consecutive_no_change})"
+                )
 
             iter_metrics.phase1_done = True
+
+            # ── No-progress handling ─────────────────────────────────────────
+            if consecutive_no_change >= 2:
+                logger.warn("[Phase 1] Two consecutive no-change iterations — aborting pipeline")
+                iter_metrics.outcome = IterationOutcome.NO_PROGRESS
+                iter_metrics.duration_s = round(time.time() - iter_start, 2)
+                metrics.iterations.append(iter_metrics)
+                logger.phase_end("phase1_implement", "no_progress", iteration=iteration)
+                visualizer.on_phase_end(PipelinePhase.IMPLEMENT, "fail")
+                break
+
+            if consecutive_no_change == 1:
+                # Drop session resume so next iteration starts a fresh CLI session
+                if runner.supports_resume and agent_a_session is not None:
+                    logger.warn("[Phase 1] Dropping session resume — fresh session next iteration")
+                    agent_a_session = None
+                store.write_feedback(
+                    iteration,
+                    "You produced no file changes this iteration.\n"
+                    "You MUST use the Edit or Write tool to modify actual files.\n"
+                    "Describing changes in text has no effect — the pipeline checks git status.",
+                    outcome=IterationOutcome.NO_PROGRESS,
+                    gate_results=[],
+                )
+                iter_metrics.outcome = IterationOutcome.NO_PROGRESS
+                iter_metrics.duration_s = round(time.time() - iter_start, 2)
+                metrics.iterations.append(iter_metrics)
+                logger.phase_end("phase1_implement", "no_progress", iteration=iteration)
+                visualizer.on_phase_end(PipelinePhase.IMPLEMENT, "fail")
+                continue
+
             logger.phase_end("phase1_implement", "completed", iteration=iteration)
             visualizer.on_phase_end(PipelinePhase.IMPLEMENT, "pass")
 

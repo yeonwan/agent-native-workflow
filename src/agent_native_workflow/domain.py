@@ -178,6 +178,7 @@ class IterationOutcome(enum.Enum):
     GATE_FAIL = "gate_fail"
     VERIFY_FAIL = "verify_fail"
     SECURITY_FAIL = "security_fail"
+    NO_PROGRESS = "no_progress"  # Agent A made no file changes
 
 
 TRIANGULAR_PASS_MARKER = "TRIANGULAR_PASS"

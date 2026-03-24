@@ -123,6 +123,12 @@ def test_pipeline_carries_agent_a_session_when_resume_supported(
     store = RunStore(base_dir=tmp_path / "meta")
     cfg = ProjectConfig(lint_cmd="", test_cmd="", changed_files=[])
 
+    # Mock file-change detection so no-progress logic doesn't interfere
+    monkeypatch.setattr("agent_native_workflow.pipeline.snapshot_working_tree", lambda: set())
+    monkeypatch.setattr(
+        "agent_native_workflow.pipeline.files_changed_since", lambda _: ["src/x.py"]
+    )
+
     attempts = {"n": 0}
 
     def flaky_gate() -> tuple[bool, str]:
@@ -165,6 +171,12 @@ def test_pipeline_non_resume_runner_always_gets_none_session(
     prompt, req = _write_prompt_and_req(tmp_path)
     store = RunStore(base_dir=tmp_path / "meta")
     cfg = ProjectConfig(lint_cmd="", test_cmd="", changed_files=[])
+
+    # Mock file-change detection so no-progress logic doesn't interfere
+    monkeypatch.setattr("agent_native_workflow.pipeline.snapshot_working_tree", lambda: set())
+    monkeypatch.setattr(
+        "agent_native_workflow.pipeline.files_changed_since", lambda _: ["src/x.py"]
+    )
 
     attempts = {"n": 0}
 
@@ -224,6 +236,11 @@ def test_pipeline_review_mode_persists_agent_r_session(
     prompt, req = _write_prompt_and_req(tmp_path)
     store = RunStore(base_dir=tmp_path / "meta")
     cfg = ProjectConfig(lint_cmd="", test_cmd="", changed_files=["src/x.py"])
+
+    monkeypatch.setattr("agent_native_workflow.pipeline.snapshot_working_tree", lambda: set())
+    monkeypatch.setattr(
+        "agent_native_workflow.pipeline.files_changed_since", lambda _: ["src/x.py"]
+    )
 
     agent = _ResumeAgentA()
     review = _ReviewRunner()
@@ -285,6 +302,11 @@ def test_pipeline_review_resumes_verification_session_on_second_iteration(
     prompt, req = _write_prompt_and_req(tmp_path)
     store = RunStore(base_dir=tmp_path / "meta")
     cfg = ProjectConfig(lint_cmd="", test_cmd="", changed_files=["src/x.py"])
+
+    monkeypatch.setattr("agent_native_workflow.pipeline.snapshot_working_tree", lambda: set())
+    monkeypatch.setattr(
+        "agent_native_workflow.pipeline.files_changed_since", lambda _: ["src/x.py"]
+    )
 
     agent = _ResumeAgentA()
     review = _FlakyReview()

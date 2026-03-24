@@ -240,6 +240,11 @@ Rules:
 
 ## Iteration {iteration} — continue in the same CLI session
 
+> **CRITICAL: You MUST use the Edit or Write tool to make actual file changes.**
+> Describing changes in text has NO effect — the pipeline checks `git status`.
+> If you do not call a file-editing tool, the pipeline will detect zero changes
+> and reset your session, forcing a full restart next iteration.
+
 Your prior edits should still be on disk. Do not restart the task from scratch; \
 make targeted fixes only.
 
