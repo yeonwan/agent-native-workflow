@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import os
-import re
 import signal
-import subprocess
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from agent_native_workflow.config import WorkflowConfig
@@ -17,12 +14,12 @@ from agent_native_workflow.detect import (
     snapshot_working_tree,
 )
 from agent_native_workflow.domain import (
-    GateResult,
     GateStatus,
     IterationMetrics,
     IterationOutcome,
     PipelineMetrics,
 )
+from agent_native_workflow.gates import run_quality_gates
 from agent_native_workflow.log import Logger
 from agent_native_workflow.prompt_loader import load_prompt, load_prompt_title
 from agent_native_workflow.requirements_loader import is_text_format, load_requirements
@@ -33,138 +30,6 @@ from agent_native_workflow.store import RunStore
 from agent_native_workflow.strategies.factory import build_verification_strategy
 from agent_native_workflow.visualization.base import PipelinePhase, Visualizer
 from agent_native_workflow.visualization.plain import PlainVisualizer
-
-_GATE_OUTPUT_LIMIT = 500
-_UNSAFE_PATTERN = re.compile(r"\$\(|`|;\s*rm\s|&&\s*rm\s|>\s*/dev/")
-
-
-def _is_safe_command(cmd: str) -> bool:
-    return not _UNSAFE_PATTERN.search(cmd)
-
-
-def _run_gate_command(cmd: str, timeout: int = 300) -> tuple[bool, str]:
-    if not _is_safe_command(cmd):
-        return False, f"BLOCKED: command contains unsafe patterns: {cmd}"
-    try:
-        result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=timeout
-        )
-        output = result.stdout + result.stderr
-        return result.returncode == 0, output
-    except subprocess.TimeoutExpired:
-        return False, f"Command timed out after {timeout}s: {cmd}"
-    except Exception as e:
-        return False, f"Command failed: {e}"
-
-
-def _run_gates_sequential(
-    *,
-    gates: list[tuple[str, str]],
-    callable_gates: list[tuple[str, Callable[[], tuple[bool, str]]]],
-    timeout: int,
-    logger: Logger,
-) -> tuple[bool, str, list[GateResult]]:
-    results: list[GateResult] = []
-    gate_pass = True
-    gate_output = ""
-
-    for name, cmd in gates:
-        if not gate_pass:
-            break
-        logger.info(f"[Phase 2] Running {name}: {cmd}")
-        passed, output = _run_gate_command(cmd, timeout)
-        status = GateStatus.PASS if passed else GateStatus.FAIL
-        results.append(GateResult(name=name, status=status, output=output[:_GATE_OUTPUT_LIMIT]))
-        if passed:
-            logger.info(f"[Phase 2] {name}: PASS")
-        else:
-            logger.info(f"[Phase 2] {name}: FAIL")
-            gate_output = f"{name} ({cmd}) FAILED:\n{output}"
-            gate_pass = False
-
-    for cname, cfunc in callable_gates:
-        if not gate_pass:
-            break
-        logger.info(f"[Phase 2] Running callable:{cname}")
-        try:
-            passed, output = cfunc()
-        except Exception as e:
-            passed, output = False, f"Gate '{cname}' raised: {e}"
-        status = GateStatus.PASS if passed else GateStatus.FAIL
-        results.append(
-            GateResult(name=f"callable:{cname}", status=status, output=output[:_GATE_OUTPUT_LIMIT])
-        )
-        if passed:
-            logger.info(f"[Phase 2] callable:{cname}: PASS")
-        else:
-            logger.info(f"[Phase 2] callable:{cname}: FAIL")
-            gate_output = f"callable:{cname} FAILED:\n{output}"
-            gate_pass = False
-
-    return gate_pass, gate_output, results
-
-
-def _run_gates_parallel(
-    *,
-    gates: list[tuple[str, str]],
-    callable_gates: list[tuple[str, Callable[[], tuple[bool, str]]]],
-    timeout: int,
-    logger: Logger,
-) -> tuple[bool, str, list[GateResult]]:
-    total = len(gates) + len(callable_gates)
-    logger.info(f"[Phase 2] Running {total} gates in parallel")
-    results: list[GateResult] = []
-    failures: list[str] = []
-
-    with ThreadPoolExecutor(max_workers=max(total, 1)) as executor:
-        future_map: dict[object, str] = {}
-        for name, cmd in gates:
-            future_map[executor.submit(_run_gate_command, cmd, timeout)] = name
-        for cname, cfunc in callable_gates:
-
-            def _wrapped(fn: Callable[[], tuple[bool, str]], n: str) -> tuple[bool, str]:
-                try:
-                    return fn()
-                except Exception as e:
-                    return False, f"Gate '{n}' raised: {e}"
-
-            future_map[executor.submit(_wrapped, cfunc, cname)] = f"callable:{cname}"
-
-        for future in as_completed(future_map):
-            name = future_map[future]
-            passed, output = future.result()
-            status = GateStatus.PASS if passed else GateStatus.FAIL
-            results.append(GateResult(name=name, status=status, output=output[:_GATE_OUTPUT_LIMIT]))
-            if passed:
-                logger.info(f"[Phase 2] {name}: PASS")
-            else:
-                logger.info(f"[Phase 2] {name}: FAIL")
-                failures.append(f"{name} FAILED:\n{output}")
-
-    if failures:
-        return False, "\n\n".join(failures), results
-    return True, "", results
-
-
-def _run_quality_gates(
-    *,
-    gates: list[tuple[str, str]],
-    callable_gates: list[tuple[str, Callable[[], tuple[bool, str]]]],
-    use_parallel: bool,
-    timeout: int,
-    logger: Logger,
-) -> tuple[bool, str, list[GateResult]]:
-    total_gates = len(gates) + len(callable_gates)
-    if not total_gates:
-        logger.info("[Phase 2] No quality gates configured — skipping")
-        return True, "", []
-    if use_parallel:
-        return _run_gates_parallel(
-            gates=gates, callable_gates=callable_gates, timeout=timeout, logger=logger
-        )
-    return _run_gates_sequential(
-        gates=gates, callable_gates=callable_gates, timeout=timeout, logger=logger
-    )
 
 
 def _run_implementation_phase(
@@ -177,7 +42,8 @@ def _run_implementation_phase(
     timeout: int,
     max_retries: int,
     logger: Logger,
-) -> None:
+    session_id: str | None = None,
+) -> str | None:
     """Phase 1: Agent A implementation/fix.
 
     On iteration 1:
@@ -186,6 +52,9 @@ def _run_implementation_phase(
         (Jira ticket workflow — requirements contain everything Agent A needs)
     On iteration 2+: receives structured context built from all previous iterations'
                      gate results, feedback, and failure reasons.
+
+    Returns:
+        ``session_id`` from the runner when the provider supports resume, else ``None``.
     """
     # Injected into every Agent A prompt regardless of iteration
     _AGENT_A_SYSTEM = (
@@ -212,15 +81,23 @@ def _run_implementation_phase(
 
     prompt_text = _AGENT_A_SYSTEM.format(requirements_file=requirements_file) + prompt_text
 
-    output = runner.run(prompt_text, timeout=timeout, max_retries=max_retries, logger=logger)
-    store.write_agent_output(iteration, output)
+    run_result = runner.run(
+        prompt_text,
+        session_id=session_id,
+        timeout=timeout,
+        max_retries=max_retries,
+        logger=logger,
+    )
+    store.write_agent_output(iteration, run_result.output)
 
     # For text-only runners (e.g. Copilot), apply output to working directory
     if not runner.supports_file_tools:
         logger.info(
             f"[Phase 1] Runner '{runner.provider_name}' is text-only — applying output to files"
         )
-        apply_text_output(output, logger=logger)
+        apply_text_output(run_result.output, logger=logger)
+
+    return run_result.session_id
 
 
 def run_pipeline(
@@ -268,6 +145,7 @@ def run_pipeline(
 
     # Build runner (all agents use same provider)
     from agent_native_workflow.domain import AgentConfig
+
     agent_cfg = wcfg.agent_config or AgentConfig()
 
     def _model_for(perms_model: str, global_override: str) -> dict[str, object]:
@@ -323,6 +201,7 @@ def run_pipeline(
         "model_c": agent_cfg.agent_c.model or wcfg.model_verify or wcfg.model,
     }
     run_dir = store.start_run(config_snapshot=config_snapshot)
+    store.set_agent_session_resume(runner.supports_resume)
 
     # If requirements file is non-text (.docx, .pdf), convert to .md snapshot
     # so all agents can read it natively. agents_requirements_file points to
@@ -373,6 +252,9 @@ def run_pipeline(
 
     start_time = time.time()
 
+    if runner.supports_resume:
+        logger.info("[Session] Agent A CLI session resume enabled for this provider")
+
     logger.info(f"=== agent-native-workflow (provider: {runner.provider_name}) ===")
     logger.info(cfg.print_config())
     logger.info(f"Max iterations: {max_iterations}")
@@ -385,6 +267,8 @@ def run_pipeline(
     visualizer.on_pipeline_start(wcfg)
 
     converged = False
+    agent_a_session: str | None = None
+    agent_r_session: str | None = None
 
     try:
         for iteration in range(1, max_iterations + 1):
@@ -405,7 +289,7 @@ def run_pipeline(
             # Snapshot working tree before Agent A so we can track exactly what it changed
             before_snapshot = snapshot_working_tree()
 
-            _run_implementation_phase(
+            new_session_id = _run_implementation_phase(
                 iteration=iteration,
                 prompt_file=prompt_file,
                 requirements_file=agents_requirements_file,
@@ -414,7 +298,11 @@ def run_pipeline(
                 timeout=agent_timeout,
                 max_retries=max_retries,
                 logger=logger,
+                session_id=agent_a_session,
             )
+            if runner.supports_resume and new_session_id is not None:
+                agent_a_session = new_session_id
+            store.write_session_state({"agent_a": agent_a_session, "agent_r": agent_r_session})
 
             # Update changed_files to only what Agent A touched this iteration
             agent_changed = files_changed_since(before_snapshot)
@@ -444,7 +332,7 @@ def run_pipeline(
 
             callable_gates = custom_gates or []
 
-            gate_pass, gate_output, gate_results = _run_quality_gates(
+            gate_pass, gate_output, gate_results = run_quality_gates(
                 gates=gates,
                 callable_gates=callable_gates,
                 use_parallel=use_parallel,
@@ -500,7 +388,11 @@ def run_pipeline(
                 timeout=agent_timeout,
                 max_retries=max_retries,
                 logger=logger,
+                verification_session_id=agent_r_session,
             )
+            if verif_result.next_agent_r_session_id is not None:
+                agent_r_session = verif_result.next_agent_r_session_id
+            store.write_session_state({"agent_a": agent_a_session, "agent_r": agent_r_session})
 
             if verif_result.passed:
                 iter_metrics.verification_status = GateStatus.PASS

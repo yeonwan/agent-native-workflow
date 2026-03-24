@@ -92,12 +92,12 @@ class WorkflowConfig:
     security_agent_enabled: bool = True
 
     # Multi-CLI settings
-    cli_provider: str = "copilot"        # default: copilot
-    model: str = ""                       # used by providers that accept --model
+    cli_provider: str = "copilot"  # default: copilot
+    model: str = ""  # used by providers that accept --model
     model_verify: str = ""
 
     # Visualization
-    visualization: str = "rich"          # "rich" | "plain"
+    visualization: str = "rich"  # "rich" | "plain"
 
     # Quality gate commands — override auto-detected values from detect.py
     # Set in pyproject.toml [tool.agent-native-workflow], .agent-native-workflow.toml, or env vars
@@ -119,13 +119,12 @@ class WorkflowConfig:
 
         try:
             import yaml  # type: ignore[import-untyped]
+
             data = yaml.safe_load(config_file.read_text(encoding="utf-8")) or {}
 
             blank = AgentConfig()
 
-            def _merge_agent(
-                raw: object, fallback: AgentPermissions
-            ) -> AgentPermissions:
+            def _merge_agent(raw: object, fallback: AgentPermissions) -> AgentPermissions:
                 if not isinstance(raw, dict) or not raw:
                     return AgentPermissions(
                         allowed_tools=list(fallback.allowed_tools),
@@ -137,9 +136,7 @@ class WorkflowConfig:
                     tools = fallback.allowed_tools
                 return AgentPermissions(
                     allowed_tools=list(tools),  # type: ignore[arg-type]
-                    permission_mode=str(
-                        raw.get("permission_mode", fallback.permission_mode)
-                    ),
+                    permission_mode=str(raw.get("permission_mode", fallback.permission_mode)),
                     model=str(raw.get("model", fallback.model)),
                 )
 
@@ -172,6 +169,7 @@ class WorkflowConfig:
             return {}
         try:
             import yaml  # type: ignore[import-untyped]
+
             raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
             if not isinstance(raw, dict):
                 return {}
@@ -201,9 +199,9 @@ class WorkflowConfig:
     ) -> WorkflowConfig:
         root = project_root or Path.cwd()
 
-        env_layer = cls.from_env()                   # env vars
-        config_dir_layer = cls.from_config_dir(root) # .agent-native-workflow/config.yaml
-        explicit_layer = explicit or {}              # CLI args
+        env_layer = cls.from_env()  # env vars
+        config_dir_layer = cls.from_config_dir(root)  # .agent-native-workflow/config.yaml
+        explicit_layer = explicit or {}  # CLI args
 
         # Priority (lowest → highest): env < config.yaml < CLI args
         merged: dict[str, object] = {}

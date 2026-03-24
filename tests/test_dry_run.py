@@ -123,9 +123,7 @@ criteria:
         """When requirements file doesn't exist, dry-run exits with code 1."""
         req_file = tmp_path / "nonexistent.md"
 
-        args = self._make_args(
-            tmp_path, ["--dry-run", "--requirements", str(req_file)]
-        )
+        args = self._make_args(tmp_path, ["--dry-run", "--requirements", str(req_file)])
         rc = _cmd_run(args)
 
         assert rc == 1

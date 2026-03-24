@@ -53,5 +53,6 @@ def run_triangular_verification(
         timeout=timeout,
         max_retries=max_retries,
         logger=logger,
+        verification_session_id=None,
     )
     return result.passed, result.feedback

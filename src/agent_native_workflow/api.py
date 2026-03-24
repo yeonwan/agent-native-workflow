@@ -118,8 +118,8 @@ class Workflow:
     def run(self) -> bool:
         _pf = self._prompt_file or Path(".agent-native-workflow/PROMPT.yaml")
         prompt_file: Path | None = _pf if _pf.is_file() else None
-        requirements_file = (
-            self._requirements_file or Path(".agent-native-workflow/requirements.md")
+        requirements_file = self._requirements_file or Path(
+            ".agent-native-workflow/requirements.md"
         )
 
         return run_pipeline(

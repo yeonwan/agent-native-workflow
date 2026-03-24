@@ -24,6 +24,7 @@ class ReviewStrategy:
         timeout: int,
         max_retries: int,
         logger: Logger,
+        verification_session_id: str | None = None,
     ) -> VerificationResult:
         if config.changed_files:
             changed_section = "\n".join(config.changed_files)
@@ -61,15 +62,30 @@ If all requirements are MET and no blocking issues exist, output on its own line
 Otherwise, list exactly what Agent A must fix."""
 
         logger.info("Phase R: Requirements-based code review")
-        output = self._runner.run(
-            prompt, timeout=timeout, max_retries=max_retries, logger=logger
+        run_out = self._runner.run(
+            prompt,
+            session_id=verification_session_id,
+            timeout=timeout,
+            max_retries=max_retries,
+            logger=logger,
         )
+        output = run_out.output
         review_path = store.write_review(iteration, output)
         logger.info(f"Review saved → {review_path}")
 
+        next_sid = run_out.session_id if self._runner.supports_resume else None
+
         if REVIEW_APPROVE_MARKER in output:
             logger.info("RESULT: PASS (review)")
-            return VerificationResult(passed=True, feedback="")
+            return VerificationResult(
+                passed=True,
+                feedback="",
+                next_agent_r_session_id=next_sid,
+            )
 
         logger.info("RESULT: FAIL (review — changes requested)")
-        return VerificationResult(passed=False, feedback=output)
+        return VerificationResult(
+            passed=False,
+            feedback=output,
+            next_agent_r_session_id=next_sid,
+        )

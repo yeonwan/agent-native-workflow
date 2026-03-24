@@ -101,7 +101,14 @@ Otherwise, list all issues that MUST be fixed before this code can be considered
 **IMPORTANT**: Do NOT read any requirements files. Base your review ONLY on the code
 itself and security best practices."""
 
-    output = _runner.run(agent_prompt, timeout=timeout, max_retries=max_retries, logger=logger)
+    run_out = _runner.run(
+        agent_prompt,
+        session_id=None,
+        timeout=timeout,
+        max_retries=max_retries,
+        logger=logger,
+    )
+    output = run_out.output
     security_report_file.write_text(output)
     logger.info(f"Security report saved to {security_report_file}")
 

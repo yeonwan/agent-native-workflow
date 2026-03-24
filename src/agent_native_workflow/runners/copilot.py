@@ -3,16 +3,18 @@ from __future__ import annotations
 import re
 import subprocess
 import time
+import uuid
 from pathlib import Path
 
 from agent_native_workflow.log import Logger
+from agent_native_workflow.runners.base import RunResult
 
 
 class GitHubCopilotRunner:
     """Runner using GitHub Copilot CLI (copilot).
 
-    Uses 'copilot <prompt>' for non-interactive text output.
-    supports_file_tools = False: returns text only, so the pipeline
+    Uses ``copilot --resume=<id> <prompt>`` for a stable session across calls.
+    ``supports_file_tools = False``: returns text only, so the pipeline
     will parse Agent A output as markdown code blocks and apply them
     to the working directory.
 
@@ -22,12 +24,13 @@ class GitHubCopilotRunner:
 
     provider_name = "copilot"
     supports_file_tools = False
+    supports_resume = True
 
     def __init__(
         self,
         *,
         allowed_tools: list[str] | None = None,  # ignored, copilot-native
-        permission_mode: str | None = None,        # ignored, copilot-native
+        permission_mode: str | None = None,  # ignored, copilot-native
         **_kwargs: object,
     ) -> None:
         pass
@@ -36,24 +39,29 @@ class GitHubCopilotRunner:
         self,
         prompt: str,
         *,
+        session_id: str | None = None,
         timeout: int = 300,
         max_retries: int = 2,
         logger: Logger | None = None,
-    ) -> str:
+    ) -> RunResult:
+        active_sid: str | None = session_id
+
         for attempt in range(1, max_retries + 1):
             try:
+                if active_sid is None:
+                    active_sid = str(uuid.uuid4())
+                cmd = ["copilot", f"--resume={active_sid}", prompt]
+
                 result = subprocess.run(
-                    ["copilot", prompt],
+                    cmd,
                     capture_output=True,
                     text=True,
                     timeout=timeout,
                 )
                 if result.returncode == 0:
-                    return result.stdout
+                    return RunResult(output=result.stdout, session_id=active_sid)
                 if logger:
-                    logger.warn(
-                        f"copilot exited with code {result.returncode} (attempt {attempt})"
-                    )
+                    logger.warn(f"copilot exited with code {result.returncode} (attempt {attempt})")
                 if result.stderr and logger:
                     logger.warn(f"stderr: {result.stderr[:500]}")
             except subprocess.TimeoutExpired:
@@ -130,7 +138,7 @@ def _apply_code_blocks(output: str, logger: Logger | None = None) -> bool:
             path_match = comment_path.match(block_content)
             if path_match:
                 file_path = path_match.group(1)
-                code = block_content[path_match.end():].lstrip("\n")
+                code = block_content[path_match.end() :].lstrip("\n")
                 path = Path(file_path)
                 if ".." not in path.parts and not path.is_absolute():
                     path.parent.mkdir(parents=True, exist_ok=True)

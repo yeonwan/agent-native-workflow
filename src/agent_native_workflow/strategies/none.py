@@ -20,5 +20,7 @@ class NoneStrategy:
         timeout: int,
         max_retries: int,
         logger: Logger,
+        verification_session_id: str | None = None,
     ) -> VerificationResult:
+        _ = verification_session_id
         return VerificationResult(passed=True, feedback="")

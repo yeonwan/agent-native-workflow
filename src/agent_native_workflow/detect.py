@@ -204,13 +204,14 @@ def detect_test_cmd(project_type: str | None = None, project_root: Path | None =
     if ptype == "python":
         resolved = _resolve_cmd("pytest")
         if resolved:
-            return f"{runner} pytest -q" if runner else f"{resolved} -q"
+            flags = "pytest --tb=short -q"
+            return f"{runner} {flags}" if runner else f"{resolved} --tb=short -q"
         if (root / "tests").is_dir() or (root / "test").is_dir():
             prefix = f"{runner} " if runner else ""
             return f"{prefix}python -m unittest discover"
     elif ptype == "node":
         if _cmd_exists("jest"):
-            return "npx jest"
+            return "npx jest --ci"
         if _cmd_exists("vitest"):
             return "npx vitest run"
     elif ptype == "rust":
@@ -348,8 +349,7 @@ def detect_changed_files(
                 str(p.relative_to(root))
                 for p in root.rglob(pattern)
                 if not any(
-                    part in p.parts
-                    for part in ("node_modules", ".venv", "target", "__pycache__")
+                    part in p.parts for part in ("node_modules", ".venv", "target", "__pycache__")
                 )
             )
         all_files = sorted(set(found))[:200]
@@ -381,9 +381,7 @@ def snapshot_working_tree(project_root: Path | None = None) -> set[str]:
         return set()
 
 
-def files_changed_since(
-    before: set[str], project_root: Path | None = None
-) -> list[str]:
+def files_changed_since(before: set[str], project_root: Path | None = None) -> list[str]:
     """Return files that changed between a snapshot and now.
 
     Compares 'git status --porcelain' output against the before-snapshot.

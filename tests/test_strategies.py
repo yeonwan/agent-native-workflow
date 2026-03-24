@@ -10,6 +10,7 @@ import pytest
 from agent_native_workflow.detect import ProjectConfig
 from agent_native_workflow.domain import CONSENSUS_AGREE_MARKER, TRIANGULAR_PASS_MARKER
 from agent_native_workflow.log import Logger
+from agent_native_workflow.runners.base import RunResult
 from agent_native_workflow.store import RunStore
 from agent_native_workflow.strategies import (
     NoneStrategy,
@@ -37,18 +38,36 @@ def test_none_strategy_always_passes() -> None:
 class _ApproveRunner:
     provider_name = "fake"
     supports_file_tools = True
+    supports_resume = False
 
-    def run(self, prompt: str, *, timeout: int = 300, max_retries: int = 2, logger=None) -> str:
+    def run(
+        self,
+        prompt: str,
+        *,
+        session_id: str | None = None,
+        timeout: int = 300,
+        max_retries: int = 2,
+        logger=None,
+    ) -> RunResult:
         assert "src/foo.py" in prompt
-        return "All good.\nREVIEW_APPROVE\n"
+        return RunResult(output="All good.\nREVIEW_APPROVE\n", session_id=None)
 
 
 class _RejectRunner:
     provider_name = "fake"
     supports_file_tools = True
+    supports_resume = False
 
-    def run(self, prompt: str, *, timeout: int = 300, max_retries: int = 2, logger=None) -> str:
-        return "Missing error handling in cli.py."
+    def run(
+        self,
+        prompt: str,
+        *,
+        session_id: str | None = None,
+        timeout: int = 300,
+        max_retries: int = 2,
+        logger=None,
+    ) -> RunResult:
+        return RunResult(output="Missing error handling in cli.py.", session_id=None)
 
 
 def test_review_strategy_passes_and_writes_review(tmp_path: Path) -> None:
@@ -69,8 +88,66 @@ def test_review_strategy_passes_and_writes_review(tmp_path: Path) -> None:
     )
     assert result.passed is True
     assert result.feedback == ""
+    assert result.next_agent_r_session_id is None
     review = (store.run_dir / "iter-001" / "review.md").read_text()
     assert "REVIEW_APPROVE" in review
+
+
+class _ResumeReviewRunner:
+    provider_name = "fake"
+    supports_file_tools = True
+    supports_resume = True
+
+    def __init__(self) -> None:
+        self.last_session_in: list[str | None] = []
+
+    def run(
+        self,
+        prompt: str,
+        *,
+        session_id: str | None = None,
+        timeout: int = 300,
+        max_retries: int = 2,
+        logger=None,
+    ) -> RunResult:
+        self.last_session_in.append(session_id)
+        return RunResult(output="ok\nREVIEW_APPROVE\n", session_id="review-sess-42")
+
+
+def test_review_strategy_resume_passes_session_and_returns_next_id(tmp_path: Path) -> None:
+    store = RunStore(base_dir=tmp_path)
+    store.start_run({})
+    reqs = tmp_path / "requirements.md"
+    reqs.write_text("# R\n")
+    cfg = ProjectConfig(changed_files=["x.py"])
+    r = _ResumeReviewRunner()
+    strategy = ReviewStrategy(r)
+
+    out1 = strategy.run(
+        requirements_file=reqs,
+        store=store,
+        iteration=1,
+        config=cfg,
+        timeout=30,
+        max_retries=1,
+        logger=Logger(),
+        verification_session_id=None,
+    )
+    assert out1.next_agent_r_session_id == "review-sess-42"
+    assert r.last_session_in == [None]
+
+    out2 = strategy.run(
+        requirements_file=reqs,
+        store=store,
+        iteration=2,
+        config=cfg,
+        timeout=30,
+        max_retries=1,
+        logger=Logger(),
+        verification_session_id="review-sess-42",
+    )
+    assert out2.next_agent_r_session_id == "review-sess-42"
+    assert r.last_session_in == [None, "review-sess-42"]
 
 
 def test_review_strategy_fails_without_marker(tmp_path: Path) -> None:
@@ -98,15 +175,24 @@ class _SequenceRunner:
 
     provider_name = "fake"
     supports_file_tools = True
+    supports_resume = False
 
     def __init__(self, outputs: list[str]) -> None:
         self._outputs = outputs
         self._i = 0
 
-    def run(self, prompt: str, *, timeout: int = 300, max_retries: int = 2, logger=None) -> str:
+    def run(
+        self,
+        prompt: str,
+        *,
+        session_id: str | None = None,
+        timeout: int = 300,
+        max_retries: int = 2,
+        logger=None,
+    ) -> RunResult:
         out = self._outputs[self._i]
         self._i += 1
-        return out
+        return RunResult(output=out, session_id=None)
 
 
 def test_triangulation_strategy_full_pass(tmp_path: Path) -> None:

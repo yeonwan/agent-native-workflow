@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from agent_native_workflow.log import Logger
+
+
+@dataclass(frozen=True)
+class RunResult:
+    """Result of an agent run, including optional session ID for resume."""
+
+    output: str
+    session_id: str | None = None
 
 
 @runtime_checkable
@@ -27,13 +36,23 @@ class AgentRunner(Protocol):
         """
         ...
 
+    @property
+    def supports_resume(self) -> bool:
+        """True if this provider can resume a session across ``run()`` calls."""
+        ...
+
     def run(
         self,
         prompt: str,
         *,
+        session_id: str | None = None,
         timeout: int = 300,
         max_retries: int = 2,
         logger: Logger | None = None,
-    ) -> str:
-        """Execute the prompt and return the raw text output."""
+    ) -> RunResult:
+        """Execute the prompt.
+
+        If ``session_id`` is set and ``supports_resume`` is True, resume that session.
+        Otherwise start a new session (provider may assign a new ID and return it).
+        """
         ...

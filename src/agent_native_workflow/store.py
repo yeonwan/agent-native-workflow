@@ -22,6 +22,7 @@ Structure:
             │   └── feedback.md        (structured feedback → Agent A next iter)
             ├── iter-002/
             │   └── ...
+            ├── session-state.json     (CLI session IDs for resume-capable providers)
             └── metrics.json           (written at run end)
 
 Why this is better than a flat output directory:
@@ -96,6 +97,11 @@ class RunStore:
     def __init__(self, base_dir: Path | None = None) -> None:
         self._base = base_dir or Path(self.BASE_DIR_NAME)
         self._run_dir: Path | None = None
+        self._agent_session_resume = False
+
+    def set_agent_session_resume(self, active: bool) -> None:
+        """When True, iteration ≥2 uses a shorter Agent A prompt (same CLI session)."""
+        self._agent_session_resume = active
 
     @property
     def run_dir(self) -> Path:
@@ -106,6 +112,29 @@ class RunStore:
     @property
     def base_dir(self) -> Path:
         return self._base
+
+    def write_session_state(self, agent_sessions: dict[str, str | None]) -> Path:
+        """Persist agent session IDs (e.g. for CLI resume) under the current run."""
+        path = self.run_dir / "session-state.json"
+        path.write_text(json.dumps(agent_sessions, indent=2, ensure_ascii=False))
+        return path
+
+    def load_session_state(self) -> dict[str, str | None]:
+        """Load persisted session IDs, or empty dict if missing."""
+        path = self.run_dir / "session-state.json"
+        if not path.is_file():
+            return {}
+        try:
+            raw = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        out: dict[str, str | None] = {}
+        for k, v in raw.items():
+            if isinstance(k, str):
+                out[k] = None if v is None else str(v)
+        return out
 
     def start_run(self, config_snapshot: dict[str, object] | None = None) -> Path:
         """Create a timestamped run directory and write the manifest."""
@@ -163,9 +192,17 @@ class RunStore:
     def build_agent_a_context(self, iteration: int, prompt_file: Path) -> str:
         """Build Agent A's prompt for iteration N (N >= 2).
 
-        Includes structured history from all previous iterations so Agent A
-        understands the full picture, not just the last failure.
+        With ``set_agent_session_resume(True)``, only the **previous** iteration is
+        summarized (CLI session already holds broader context). Otherwise, all prior
+        iterations are included.
         """
+        if iteration < 2:
+            raise ValueError("build_agent_a_context requires iteration >= 2")
+        if self._agent_session_resume:
+            return self._build_resume_agent_a_context(iteration, prompt_file)
+        return self._build_full_agent_a_context(iteration, prompt_file)
+
+    def _build_full_agent_a_context(self, iteration: int, prompt_file: Path) -> str:
         history_sections: list[str] = []
 
         for i in range(1, iteration):
@@ -190,6 +227,25 @@ Rules:
 - Do NOT start from scratch — read existing code first, then make targeted fixes
 - Address every item in the feedback above
 - After fixing, verify your changes satisfy the requirements in `{prompt_file}`
+"""
+
+    def _build_resume_agent_a_context(self, iteration: int, prompt_file: Path) -> str:
+        ctx = self._load_iteration_context(iteration - 1)
+        latest = (
+            ctx.to_prompt_section()
+            if ctx
+            else "(No structured history for the previous iteration.)"
+        )
+        return f"""Read `{prompt_file}` for the full requirements.
+
+## Iteration {iteration} — continue in the same CLI session
+
+Your prior edits should still be on disk. Do not restart the task from scratch; \
+make targeted fixes only.
+
+{latest}
+
+When satisfied, output `LOOP_COMPLETE` on its own line.
 """
 
     # ── Quality Gates ─────────────────────────────────────────────────────────
@@ -269,7 +325,7 @@ Rules:
             if failed:
                 lines.append("**Failed quality gates:**")
                 for g in failed:
-                    lines.append(f"- {g.name}: {g.output[:400].strip()}")
+                    lines.append(f"- {g.name} ({g.status.value})")
                 lines.append("")
 
         lines.append(content.strip())

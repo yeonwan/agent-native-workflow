@@ -4,6 +4,7 @@ import subprocess
 import time
 
 from agent_native_workflow.log import Logger
+from agent_native_workflow.runners.base import RunResult
 
 
 class OpenAICodexRunner:
@@ -11,10 +12,12 @@ class OpenAICodexRunner:
 
     Codex CLI supports autonomous file editing, so supports_file_tools = True.
     Uses 'codex -q <prompt>' for non-interactive output.
+    Session resume is not supported by this runner (CLI TBD).
     """
 
     provider_name = "codex"
     supports_file_tools = True
+    supports_resume = False
 
     def __init__(self, *, model: str = "") -> None:
         self._model = model
@@ -23,10 +26,13 @@ class OpenAICodexRunner:
         self,
         prompt: str,
         *,
+        session_id: str | None = None,
         timeout: int = 300,
         max_retries: int = 2,
         logger: Logger | None = None,
-    ) -> str:
+    ) -> RunResult:
+        _ = session_id  # not supported
+
         for attempt in range(1, max_retries + 1):
             try:
                 cmd = ["codex", "-q", prompt]
@@ -40,11 +46,9 @@ class OpenAICodexRunner:
                     timeout=timeout,
                 )
                 if result.returncode == 0:
-                    return result.stdout
+                    return RunResult(output=result.stdout, session_id=None)
                 if logger:
-                    logger.warn(
-                        f"codex exited with code {result.returncode} (attempt {attempt})"
-                    )
+                    logger.warn(f"codex exited with code {result.returncode} (attempt {attempt})")
                 if result.stderr and logger:
                     logger.warn(f"stderr: {result.stderr[:500]}")
             except subprocess.TimeoutExpired:

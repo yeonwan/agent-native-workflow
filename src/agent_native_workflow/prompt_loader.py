@@ -75,6 +75,7 @@ def is_yaml_prompt(path: Path) -> bool:
 
 # ── YAML renderer ─────────────────────────────────────────────────────────────
 
+
 def _load_yaml_prompt(path: Path) -> str:
     try:
         import yaml  # type: ignore[import-untyped]
@@ -117,9 +118,7 @@ def _render(data: dict[str, object]) -> str:
         sections.append(f"## Notes\n\n{notes}")
 
     sections.append(
-        "## Completion Signal\n\n"
-        "When ALL criteria above are met, output exactly:\n"
-        "LOOP_COMPLETE"
+        "## Completion Signal\n\nWhen ALL criteria above are met, output exactly:\nLOOP_COMPLETE"
     )
 
     return "\n\n".join(sections)

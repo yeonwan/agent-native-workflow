@@ -57,9 +57,7 @@ class RichVisualizer:
 
     def __init__(self) -> None:
         if not _RICH_AVAILABLE:
-            raise ImportError(
-                "rich is required for RichVisualizer. Install it: pip install rich"
-            )
+            raise ImportError("rich is required for RichVisualizer. Install it: pip install rich")
         self._console = Console()
         self._live: Live | None = None
         self._start_time = time.time()
@@ -148,9 +146,7 @@ class RichVisualizer:
         table = Table.grid(padding=(0, 2))
         table.add_row(
             *[
-                Text.from_markup(
-                    f"{_PHASE_LABELS[p]}  {_STATUS_STYLE.get(s, s)}"
-                )
+                Text.from_markup(f"{_PHASE_LABELS[p]}  {_STATUS_STYLE.get(s, s)}")
                 for p, s in self._phase_states.items()
             ]
         )

@@ -60,6 +60,7 @@ def is_text_format(path: Path) -> bool:
 
 # ── Format-specific readers ───────────────────────────────────────────────────
 
+
 def _read_docx(path: Path) -> str:
     try:
         from docx import Document  # type: ignore[import-untyped]

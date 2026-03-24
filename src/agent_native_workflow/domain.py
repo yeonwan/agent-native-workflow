@@ -40,8 +40,14 @@ class AgentPermissions:
 
 # Base tools every Agent A needs regardless of project type
 _AGENT_A_BASE = [
-    "Read", "Edit", "Write", "Bash(git:status)", "Bash(git:diff)",
-    "Bash(git:log)", "Grep", "Glob",
+    "Read",
+    "Edit",
+    "Write",
+    "Bash(git:status)",
+    "Bash(git:diff)",
+    "Bash(git:log)",
+    "Grep",
+    "Glob",
 ]
 _AGENT_B_TOOLS = ["Read", "Grep", "Glob", "Bash(git:diff)", "Bash(git:log)"]
 # Agent R (review mode): read requirements + code; same tool set as B per REDESIGN.
@@ -51,10 +57,10 @@ _AGENT_C_TOOLS = ["Read"]
 # Build tools added on top of _AGENT_A_BASE, keyed by project_type
 _AGENT_A_BUILD_TOOLS: dict[str, list[str]] = {
     "python": ["Bash(uv:*)", "Bash(pytest:*)", "Bash(ruff:*)", "Bash(make:*)"],
-    "node":   ["Bash(npm:*)", "Bash(npx:*)", "Bash(yarn:*)", "Bash(make:*)"],
-    "rust":   ["Bash(cargo:*)", "Bash(make:*)"],
-    "go":     ["Bash(go:*)", "Bash(make:*)"],
-    "java-maven":  ["Bash(mvn:*)", "Bash(make:*)"],
+    "node": ["Bash(npm:*)", "Bash(npx:*)", "Bash(yarn:*)", "Bash(make:*)"],
+    "rust": ["Bash(cargo:*)", "Bash(make:*)"],
+    "go": ["Bash(go:*)", "Bash(make:*)"],
+    "java-maven": ["Bash(mvn:*)", "Bash(make:*)"],
     "java-gradle": ["Bash(./gradlew:*)", "Bash(gradle:*)", "Bash(make:*)"],
 }
 
@@ -62,9 +68,9 @@ _AGENT_A_BUILD_TOOLS: dict[str, list[str]] = {
 # Empty string = let the provider choose its default.
 _DEFAULT_MODELS: dict[str, dict[str, str]] = {
     "claude": {
-        "agent_a": "claude-opus-4-6",       # implementer: most capable
-        "agent_r": "claude-sonnet-4-6",    # review mode: balanced
-        "agent_b": "claude-sonnet-4-6",     # triangulation B
+        "agent_a": "claude-opus-4-6",  # implementer: most capable
+        "agent_r": "claude-sonnet-4-6",  # review mode: balanced
+        "agent_b": "claude-sonnet-4-6",  # triangulation B
         "agent_c": "claude-haiku-4-5-20251001",  # triangulation C
     },
     "copilot": {
@@ -162,6 +168,7 @@ class AgentConfig:
 
     def save(self, path: Path) -> None:
         import yaml  # type: ignore[import-untyped]
+
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml.dump(self.to_dict(), allow_unicode=True, sort_keys=False))
 
@@ -185,10 +192,14 @@ class VerificationResult:
 
     When ``passed`` is False, ``feedback`` is the text passed to Agent A on the
     next iteration (same role as prior ``c-report`` / verify feedback).
+
+    ``next_agent_r_session_id`` is set by review mode when the Agent R runner
+    supports CLI session resume; the pipeline carries it across iterations.
     """
 
     passed: bool
     feedback: str = ""
+    next_agent_r_session_id: str | None = None
 
 
 class VerificationStrategy(Protocol):
@@ -207,6 +218,7 @@ class VerificationStrategy(Protocol):
         timeout: int,
         max_retries: int,
         logger: Logger,
+        verification_session_id: str | None = None,
     ) -> VerificationResult: ...
 
 

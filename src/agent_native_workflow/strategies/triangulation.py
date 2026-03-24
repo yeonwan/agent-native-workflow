@@ -35,14 +35,14 @@ class TriangulationStrategy:
         timeout: int,
         max_retries: int,
         logger: Logger,
+        verification_session_id: str | None = None,
     ) -> VerificationResult:
+        _ = verification_session_id
         cfg = config
 
         context_lines: list[str] = []
         if cfg.instruction_files:
-            context_lines.append(
-                f"Project rules/conventions: {' '.join(cfg.instruction_files)}"
-            )
+            context_lines.append(f"Project rules/conventions: {' '.join(cfg.instruction_files)}")
         if cfg.design_docs:
             context_lines.append(f"Design documents: {' '.join(cfg.design_docs)}")
         context_section = "\n".join(context_lines)
@@ -90,8 +90,12 @@ the better the downstream review will be.
 Output structured markdown."""
 
         output_b = self._runner.run(
-            agent_b_prompt, timeout=timeout, max_retries=max_retries, logger=logger
-        )
+            agent_b_prompt,
+            session_id=None,
+            timeout=timeout,
+            max_retries=max_retries,
+            logger=logger,
+        ).output
         b_review_path = store.write_b_review(iteration, output_b)
         logger.info(f"Senior dev review saved → {b_review_path}")
 
@@ -138,8 +142,12 @@ If requirements are UNCLEAR, note what needs clarification — but do NOT fail \
 solely because the developer did not use the exact wording from requirements."""
 
         output_c = c_runner.run(
-            agent_c_prompt, timeout=timeout, max_retries=max_retries, logger=logger
-        )
+            agent_c_prompt,
+            session_id=None,
+            timeout=timeout,
+            max_retries=max_retries,
+            logger=logger,
+        ).output
         c_report_path = store.write_c_report(iteration, output_c)
         logger.info(f"PM acceptance report saved → {c_report_path}")
 
@@ -181,8 +189,12 @@ If you CONFIRM, output exactly on its own line:
 If you OBJECT, explain your technical objections. Do NOT output the marker."""
 
         output_b_confirm = self._runner.run(
-            agent_b_confirm_prompt, timeout=timeout, max_retries=max_retries, logger=logger
-        )
+            agent_b_confirm_prompt,
+            session_id=None,
+            timeout=timeout,
+            max_retries=max_retries,
+            logger=logger,
+        ).output
         store.write_b_confirmation(iteration, output_b_confirm)
         logger.info(f"Senior dev confirmation saved → {store.b_confirmation_path(iteration)}")
 

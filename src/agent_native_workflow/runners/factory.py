@@ -27,9 +27,7 @@ def runner_for(provider: str, **kwargs: object) -> AgentRunner:
     cls = _REGISTRY.get(provider.lower())
     if cls is None:
         valid = ", ".join(sorted(_REGISTRY))
-        raise ValueError(
-            f"Unknown CLI provider '{provider}'. Valid providers: {valid}"
-        )
+        raise ValueError(f"Unknown CLI provider '{provider}'. Valid providers: {valid}")
     return cls(**kwargs)  # type: ignore[return-value]
 
 
@@ -54,6 +52,7 @@ def available_providers() -> list[dict[str, object]]:
                 "provider": name,
                 "cli_cmd": cli_cmd,
                 "file_tools": getattr(cls, "supports_file_tools", False),
+                "supports_resume": getattr(cls, "supports_resume", False),
                 "status": "available" if found else f"not found ({cli_cmd} not in PATH)",
                 "experimental": name in experimental,
             }
