@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 
+from agent_native_workflow.commands.clean import cmd_clean
 from agent_native_workflow.commands.detect import cmd_detect
 from agent_native_workflow.commands.init import cmd_init
 from agent_native_workflow.commands.providers import cmd_providers
@@ -21,10 +22,12 @@ COMMAND_DISPATCH: dict[str, CommandHandler] = {
     "providers": cmd_providers,
     "init": cmd_init,
     "status": cmd_status,
+    "clean": cmd_clean,
 }
 
 __all__ = [
     "COMMAND_DISPATCH",
+    "cmd_clean",
     "cmd_detect",
     "cmd_init",
     "cmd_providers",

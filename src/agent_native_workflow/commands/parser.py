@@ -223,4 +223,29 @@ def build_parser() -> ArgumentParser:
         help="Artifact base directory (default: .agent-native-workflow)",
     )
 
+    # clean
+    clean_p = sub.add_parser(
+        "clean",
+        help="Delete old run directories, keeping N most recent (default N=5)",
+    )
+    clean_p.add_argument(
+        "--keep",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Number of runs to keep (default: 5)",
+    )
+    clean_p.add_argument(
+        "--all",
+        action="store_true",
+        default=False,
+        help="Delete all runs",
+    )
+    clean_p.add_argument(
+        "--output-dir",
+        default=None,
+        metavar="DIR",
+        help="Artifact base directory (default: .agent-native-workflow)",
+    )
+
     return parser
