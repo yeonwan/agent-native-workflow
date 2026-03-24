@@ -45,33 +45,48 @@ with prior reviews unless the code has actually changed since then. If the same
 issues you flagged before are still present, your verdict must remain FAIL.
 """
 
-        prompt = f"""You are a code reviewer checking whether an implementation meets \
-its requirements.
+        codereview_path = store.base_dir / "codereview.md"
+        codereview_section = ""
+        if codereview_path.is_file():
+            codereview_section = f"""
+## Code Quality Guidelines (Advisory)
+Read `{codereview_path}` for project-specific conventions and patterns.
+Violations of these guidelines do NOT block approval. List them in a
+separate "Suggestions" section.
+"""
 
-## Requirements
+        prompt = f"""You are a senior developer reviewing code for correctness AND quality.
+
+## Part 1: Requirements Check (Blocking)
 Read `{requirements_file}` — this is the source of truth.
 
+For each requirement:
+- **Requirement**: [quote it]
+- **Status**: MET / NOT MET / PARTIAL
+- **Evidence**: specific code references (function names, line behavior) that confirm or deny
+{codereview_section}
 ## Changed Files
 The following files were changed in this implementation:
 {changed_section}
 
-Read each changed file and verify the implementation against requirements.
+Read each changed file thoroughly.
 {consistency_section}
 ## Your Review
 
-For each requirement or acceptance criterion:
-- **Requirement**: [quote it]
-- **Status**: MET / NOT MET / PARTIAL
-- **Evidence**: specific code references (function names, line behavior) that confirm or deny
+### Blocking Issues
+List anything where requirements are NOT MET or there are bugs/security issues.
+These MUST be fixed before approval.
 
-## Issues
-List anything that must be fixed, with specific file and location.
+### Suggestions (Advisory)
+Code quality improvements, convention violations, naming, patterns.
+These do NOT block approval but are recommended.
 
 ## Verdict
-If all requirements are MET and no blocking issues exist, output on its own line:
+If ALL requirements are MET and there are no blocking issues, output on its own line:
 {REVIEW_APPROVE_MARKER}
 
-Otherwise, list exactly what Agent A must fix."""
+Otherwise, list exactly what Agent A must fix (blocking issues only).
+Advisory suggestions should NOT prevent approval."""
 
         logger.info("Phase R: Requirements-based code review")
         run_out = self._runner.run(

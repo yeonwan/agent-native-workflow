@@ -82,6 +82,31 @@ REQUIREMENTS_MD = """\
 """
 
 
+CODEREVIEW_MD = """\
+# Code Review Guidelines
+
+<!--
+  Optional: project-specific conventions for Agent R (the reviewer).
+  Agent R reads this file during review but violations here do NOT block approval.
+  They appear as "Suggestions" in the review output.
+  Delete this file if you only want requirements-based review.
+-->
+
+## Conventions
+- Follow existing naming patterns in the codebase
+- All public functions must have type hints and a docstring
+- No bare `except:` — always specify exception type
+
+## Patterns
+- Use `pathlib.Path` over `os.path` for file operations
+- Prefer dataclasses or Pydantic models over raw dicts for structured data
+
+## Testing
+- Tests must be deterministic (no sleep, no real network)
+- Use fixtures for shared test setup
+"""
+
+
 def config_yaml(project_type: str, lint_hint: str, test_hint: str) -> str:
     return f"""\
 # agent-native-workflow configuration

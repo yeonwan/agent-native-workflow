@@ -126,15 +126,19 @@ def build_resume_context(run_dir: Path, iteration: int, prompt_file: Path) -> st
 
 ## Iteration {iteration} — continue in the same CLI session
 
-> **CRITICAL: You MUST use the Edit or Write tool to make actual file changes.**
-> Describing changes in text has NO effect — the pipeline checks `git status`.
-> If you do not call a file-editing tool, the pipeline will detect zero changes
-> and reset your session, forcing a full restart next iteration.
+> **CRITICAL — READ THIS BEFORE DOING ANYTHING ELSE:**
+>
+> 1. **Do NOT trust your session memory.** Your memory of "what you wrote" may not
+>    reflect the actual state of files on disk. Read the relevant files first.
+> 2. **You MUST call Edit or Write to make changes.** Describing fixes in text has
+>    NO effect — the pipeline checks `git status`, not your words.
+> 3. **LOOP_COMPLETE is only valid after you have called Edit or Write this iteration.**
+>    Outputting LOOP_COMPLETE without any file edits causes the pipeline to drop your
+>    session and force a full restart.
 
-Your prior edits should still be on disk. Do not restart the task from scratch; \
-make targeted fixes only.
+Start by reading the files that need to change. Then make targeted fixes with Edit or Write.
 
 {latest}
 
-When satisfied, output `LOOP_COMPLETE` on its own line.
+When all fixes are applied (Edit/Write called at least once), output `LOOP_COMPLETE` on its own line.
 """

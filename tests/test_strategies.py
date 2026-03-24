@@ -322,6 +322,111 @@ def test_build_review_falls_back_to_verify_runner() -> None:
     assert strat._runner is b_runner
 
 
+class _CaptureRunner:
+    """Runner that records the prompt it receives."""
+
+    provider_name = "fake"
+    supports_file_tools = True
+    supports_resume = False
+
+    def __init__(self) -> None:
+        self.last_prompt = ""
+
+    def run(
+        self,
+        prompt: str,
+        *,
+        session_id: str | None = None,
+        timeout: int = 300,
+        max_retries: int = 2,
+        logger=None,
+    ) -> RunResult:
+        self.last_prompt = prompt
+        return RunResult(output="ok\nREVIEW_APPROVE\n", session_id=None)
+
+
+def test_review_prompt_includes_consistency_check(tmp_path: Path) -> None:
+    store = RunStore(base_dir=tmp_path)
+    store.start_run({})
+    reqs = tmp_path / "requirements.md"
+    reqs.write_text("# R\n")
+    cfg = ProjectConfig(changed_files=["x.py"])
+    runner = _CaptureRunner()
+    strategy = ReviewStrategy(runner)
+    strategy.run(
+        requirements_file=reqs,
+        store=store,
+        iteration=2,
+        config=cfg,
+        timeout=30,
+        max_retries=1,
+        logger=Logger(),
+    )
+    assert "iter-*/review.md" in runner.last_prompt
+
+
+def test_review_prompt_includes_codereview_when_file_exists(tmp_path: Path) -> None:
+    store = RunStore(base_dir=tmp_path)
+    store.start_run({})
+    reqs = tmp_path / "requirements.md"
+    reqs.write_text("# R\n")
+    (tmp_path / "codereview.md").write_text("## Conventions\n- Use pathlib\n")
+    cfg = ProjectConfig(changed_files=["x.py"])
+    runner = _CaptureRunner()
+    strategy = ReviewStrategy(runner)
+    strategy.run(
+        requirements_file=reqs,
+        store=store,
+        iteration=1,
+        config=cfg,
+        timeout=30,
+        max_retries=1,
+        logger=Logger(),
+    )
+    assert "Code Quality Guidelines" in runner.last_prompt
+
+
+def test_review_prompt_excludes_codereview_when_file_missing(tmp_path: Path) -> None:
+    store = RunStore(base_dir=tmp_path)
+    store.start_run({})
+    reqs = tmp_path / "requirements.md"
+    reqs.write_text("# R\n")
+    cfg = ProjectConfig(changed_files=["x.py"])
+    runner = _CaptureRunner()
+    strategy = ReviewStrategy(runner)
+    strategy.run(
+        requirements_file=reqs,
+        store=store,
+        iteration=1,
+        config=cfg,
+        timeout=30,
+        max_retries=1,
+        logger=Logger(),
+    )
+    assert "Code Quality Guidelines" not in runner.last_prompt
+
+
+def test_review_two_tier_verdict_format(tmp_path: Path) -> None:
+    store = RunStore(base_dir=tmp_path)
+    store.start_run({})
+    reqs = tmp_path / "requirements.md"
+    reqs.write_text("# R\n")
+    cfg = ProjectConfig(changed_files=["x.py"])
+    runner = _CaptureRunner()
+    strategy = ReviewStrategy(runner)
+    strategy.run(
+        requirements_file=reqs,
+        store=store,
+        iteration=1,
+        config=cfg,
+        timeout=30,
+        max_retries=1,
+        logger=Logger(),
+    )
+    assert "Blocking Issues" in runner.last_prompt
+    assert "Suggestions (Advisory)" in runner.last_prompt
+
+
 def test_run_triangular_verification_delegates_to_strategy(tmp_path: Path) -> None:
     from agent_native_workflow.verify import run_triangular_verification
 

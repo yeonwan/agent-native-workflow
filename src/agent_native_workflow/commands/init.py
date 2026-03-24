@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from agent_native_workflow.commands.init_templates import (
+    CODEREVIEW_MD,
     PROMPT_YAML,
     REQUIREMENTS_MD,
     config_yaml,
@@ -56,6 +57,13 @@ def cmd_init(args: argparse.Namespace) -> int:
     else:
         print(f"Skipped {workflow_config_file} (already exists)")
 
+    codereview_file = config_dir / "codereview.md"
+    if not codereview_file.exists():
+        codereview_file.write_text(CODEREVIEW_MD)
+        print(f"Created {codereview_file}")
+    else:
+        print(f"Skipped {codereview_file} (already exists)")
+
     gitignore = Path(".gitignore")
     agn_entry = ".agent-native-workflow/runs/"
     if gitignore.is_file():
@@ -74,4 +82,5 @@ def cmd_init(args: argparse.Namespace) -> int:
     print("  3. Set verification in config.yaml (none / review / triangulation)")
     print("  4. Run: agn run --cli <provider>")
     print("     Or: agn run --requirements path/to/ticket.docx")
+    print(f"  5. (Optional) Edit {codereview_file} — code conventions for Agent R")
     return 0

@@ -13,7 +13,7 @@ The pipeline ran `agn clean` with Haiku for all agents (A, R). It "converged" in
 - **Agent R approved unchanged code on iteration 3** after rejecting the same code twice (non-deterministic)
 - **Lint gate was skipped** because `ruff` was not found in the subprocess PATH
 
-These five fixes are ordered by priority. Implement them in order.
+These six fixes are ordered by priority. Implement them in order.
 
 ---
 
@@ -164,45 +164,17 @@ This leverages the existing `review.md` artifacts and Agent R's file-read tools.
 
 ---
 
-## Fix 4 — Pin Lint Command in Config Defaults
+## Fix 4 — Ensure Lint Commands Use `uv run` Prefix
 
-**Problem:** `detect_all()` finds `ruff` at the system level, but inside the pipeline subprocess `ruff` is not in PATH. Result: lint gate silently skipped.
+**Problem:** `detect_all()` finds `ruff` at the system level, but inside the pipeline subprocess `ruff` is not in PATH. Result: lint gate silently skipped. `agn init` already generates uncommented `lint-cmd` / `test-cmd` when detected, but the detected commands may lack the `uv run` prefix needed for subprocess execution.
 
-**Solution:** Make `agn init` generate an **uncommented** `lint-cmd` in `config.yaml` for Python projects.
+**Solution:** Ensure the detected commands in `detect.py` use `uv run` prefix when the project uses `uv` (has `pyproject.toml` with `uv` or a `uv.lock` file).
 
-### 4a. Update init template
+**File:** `src/agent_native_workflow/detect.py`
 
-**File:** `src/agent_native_workflow/commands/init_templates.py`
+In the detection logic that sets `lint_cmd` and `test_cmd`, check if the project uses `uv`. If it does, prefix detected Python tool commands (like `ruff`, `pytest`, `mypy`) with `uv run`. For example, if the current detection produces `ruff check src tests`, it should produce `uv run ruff check src tests` when `uv.lock` or a `[tool.uv]` section exists in `pyproject.toml`.
 
-In the `CONFIG_YAML` template, change the lint/test hints section. Currently the generated config comments out `lint-cmd` and `test-cmd`. For Python projects, the generated file should have:
-
-```yaml
-# Quality gate commands (auto-detected).
-lint-cmd: uv run ruff check src tests
-test-cmd: uv run pytest tests/
-```
-
-Instead of the current commented-out form. The template uses `{lint_hint}` and `{test_hint}` placeholders — update the `cmd_init` function in `commands/init.py` to pass the detected commands as uncommented values.
-
-### 4b. Update init command
-
-**File:** `src/agent_native_workflow/commands/init.py`
-
-Find where `lint_hint` and `test_hint` are built for the config template. Change them from:
-
-```python
-lint_hint = f"# lint-cmd: {detected_lint}" if detected_lint else "# lint-cmd:"
-test_hint = f"# test-cmd: {detected_test}" if detected_test else "# test-cmd:"
-```
-
-To:
-
-```python
-lint_hint = f"lint-cmd: {detected_lint}" if detected_lint else "# lint-cmd:"
-test_hint = f"test-cmd: {detected_test}" if detected_test else "# test-cmd:"
-```
-
-The only change is removing the `#` prefix when a command is detected. This makes detected commands active by default.
+Look at the existing detection functions and find where `lint_cmd` and `test_cmd` are assigned. Add a helper that checks for `uv` usage and prefixes accordingly. The existing `_cmd_exists()` / `_resolve_cmd()` helpers can be used to check if `uv` is available.
 
 ---
 
@@ -227,6 +199,138 @@ Then update Fix 1b and Fix 1c code to use `IterationOutcome.NO_PROGRESS` instead
 
 ---
 
+## Fix 6 — Two-Tier Review with `codereview.md`
+
+**Problem:** Agent R currently only checks requirements (MET / NOT MET / PARTIAL). It acts as a checklist machine, not a senior developer. Real code reviews also cover conventions, patterns, error handling, and project-specific practices.
+
+**Solution:** Two changes:
+
+1. Add support for an optional `codereview.md` file that defines project-specific review guidelines
+2. Restructure Agent R's prompt into a **2-tier verdict**: blocking (requirements) vs advisory (code quality)
+
+### 6a. Read `codereview.md` if it exists
+
+**File:** `src/agent_native_workflow/strategies/review.py`, in the `run()` method.
+
+Before building the prompt, check if a `codereview.md` file exists:
+
+```python
+codereview_path = store.base_dir / "codereview.md"
+has_codereview = codereview_path.is_file()
+```
+
+### 6b. Restructure Agent R prompt with 2-tier verdict
+
+**File:** `src/agent_native_workflow/strategies/review.py`
+
+Replace the current `prompt` with a 2-tier structure. The full new prompt:
+
+```python
+codereview_section = ""
+if has_codereview:
+    codereview_section = f"""
+## Code Quality Guidelines (Advisory)
+Read `{codereview_path}` for project-specific conventions and patterns.
+Violations of these guidelines do NOT block approval. List them in a
+separate "Suggestions" section.
+"""
+
+prompt = f"""You are a senior developer reviewing code for correctness AND quality.
+
+## Part 1: Requirements Check (Blocking)
+Read `{requirements_file}` — this is the source of truth.
+
+For each requirement:
+- **Requirement**: [quote it]
+- **Status**: MET / NOT MET / PARTIAL
+- **Evidence**: specific code references
+{codereview_section}
+## Changed Files
+{changed_section}
+
+Read each changed file thoroughly.
+
+## Consistency Check
+If this is not the first review in this run, previous reviews are saved at:
+`{store.run_dir}/iter-*/review.md`
+Read your previous review(s) before deciding. Your verdict must be consistent
+with prior reviews unless the code has actually changed since then.
+
+## Your Review
+
+### Blocking Issues
+List anything where requirements are NOT MET or there are bugs/security issues.
+These MUST be fixed before approval.
+
+### Suggestions (Advisory)
+Code quality improvements, convention violations, naming, patterns.
+These do NOT block approval but are recommended.
+
+## Verdict
+If ALL requirements are MET and there are no blocking issues, output:
+{REVIEW_APPROVE_MARKER}
+
+Otherwise, list exactly what Agent A must fix (blocking issues only).
+Advisory suggestions should NOT prevent approval."""
+```
+
+### 6c. Generate `codereview.md` template in `agn init`
+
+**File:** `src/agent_native_workflow/commands/init_templates.py`
+
+Add a new template constant:
+
+```python
+CODEREVIEW_MD = """\
+# Code Review Guidelines
+
+<!--
+  Optional: project-specific conventions for Agent R (the reviewer).
+  Agent R reads this file during review but violations here do NOT block approval.
+  They appear as "Suggestions" in the review output.
+  Delete this file if you only want requirements-based review.
+-->
+
+## Conventions
+- Follow existing naming patterns in the codebase
+- All public functions must have type hints and a docstring
+- No bare `except:` — always specify exception type
+
+## Patterns
+- Use `pathlib.Path` over `os.path` for file operations
+- Prefer dataclasses or Pydantic models over raw dicts for structured data
+
+## Testing
+- Tests must be deterministic (no sleep, no real network)
+- Use fixtures for shared test setup
+"""
+```
+
+**File:** `src/agent_native_workflow/commands/init.py`
+
+Import `CODEREVIEW_MD` from `init_templates` and add generation logic after the `workflow_config_file` block:
+
+```python
+codereview_file = config_dir / "codereview.md"
+if not codereview_file.exists():
+    codereview_file.write_text(CODEREVIEW_MD)
+    print(f"Created {codereview_file}")
+else:
+    print(f"Skipped {codereview_file} (already exists)")
+```
+
+### 6d. Update "Next steps" output
+
+**File:** `src/agent_native_workflow/commands/init.py`
+
+In the "Next steps" print block at the end, add a line:
+
+```
+  5. (Optional) Edit .agent-native-workflow/codereview.md — code conventions for reviewer
+```
+
+---
+
 ## Testing
 
 After implementing all fixes, run:
@@ -235,12 +339,20 @@ After implementing all fixes, run:
 uv run pytest tests/ -v
 ```
 
-All existing tests must pass. Write new tests in `tests/test_pipeline_no_progress.py`:
+All existing tests must pass. Write new tests:
+
+**`tests/test_pipeline_no_progress.py`** (new file):
 
 1. **`test_no_change_drops_resume_on_first_occurrence`**: Mock Agent A to return output but change no files. Verify `agent_a_session` is set to `None` after iteration 1.
 2. **`test_two_consecutive_no_change_breaks_pipeline`**: Mock Agent A to never change files. Verify pipeline breaks after 2 iterations (not `max_iterations`).
 3. **`test_review_skipped_when_code_unchanged`**: Mock Agent A to change files in iter 1 but not iter 2. Verify Agent R is NOT called on iter 2.
-4. **`test_agent_r_receives_previous_review`**: Mock Agent R, run 2 iterations. Verify the prompt passed to Agent R on iter 2 contains `"Your Previous Review"`.
+
+**`tests/test_review_strategy.py`** (new file):
+
+4. **`test_review_prompt_includes_consistency_check`**: Run ReviewStrategy with `iteration=2`. Verify the prompt passed to the runner contains `"iter-*/review.md"`.
+5. **`test_review_prompt_includes_codereview_when_file_exists`**: Create a `codereview.md` in the store's base_dir. Run ReviewStrategy. Verify prompt contains `"Code Quality Guidelines"`.
+6. **`test_review_prompt_excludes_codereview_when_file_missing`**: Run ReviewStrategy without `codereview.md`. Verify prompt does NOT contain `"Code Quality Guidelines"`.
+7. **`test_review_two_tier_verdict_format`**: Verify the prompt contains both `"Blocking Issues"` and `"Suggestions (Advisory)"` sections.
 
 ---
 
@@ -248,10 +360,12 @@ All existing tests must pass. Write new tests in `tests/test_pipeline_no_progres
 
 | File | Change |
 |---|---|
-| `src/agent_native_workflow/store.py` | Add tool-use instruction to `_build_resume_agent_a_context` |
+| `src/agent_native_workflow/store.py` | Add tool-use enforcement to `_build_resume_agent_a_context` |
 | `src/agent_native_workflow/pipeline.py` | Add `consecutive_no_change` tracking, skip gates/review on no-change, reuse verdict on unchanged code |
-| `src/agent_native_workflow/strategies/review.py` | Add consistency-check instruction pointing Agent R to previous `review.md` files |
-| `src/agent_native_workflow/commands/init_templates.py` | Uncomment detected lint/test commands |
-| `src/agent_native_workflow/commands/init.py` | Remove `#` from detected command hints |
+| `src/agent_native_workflow/strategies/review.py` | 2-tier prompt (blocking + advisory), consistency check, `codereview.md` support |
+| `src/agent_native_workflow/detect.py` | Add `uv run` prefix to detected lint/test commands when project uses `uv` |
 | `src/agent_native_workflow/domain.py` | Add `NO_PROGRESS` to `IterationOutcome` |
-| `tests/test_pipeline_no_progress.py` | New test file for no-change and review-skip behavior |
+| `src/agent_native_workflow/commands/init_templates.py` | Add `CODEREVIEW_MD` template |
+| `src/agent_native_workflow/commands/init.py` | Generate `codereview.md` on `agn init`, update "Next steps" |
+| `tests/test_pipeline_no_progress.py` | New: no-change detection and review-skip tests |
+| `tests/test_review_strategy.py` | New: 2-tier prompt, consistency check, codereview.md tests |
