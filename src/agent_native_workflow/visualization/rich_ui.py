@@ -26,9 +26,15 @@ except ImportError:
 _PHASE_LABELS = {
     PipelinePhase.IMPLEMENT: "Agent A  Implement",
     PipelinePhase.QUALITY_GATES: "Gates    Lint/Test",
-    PipelinePhase.TRIANGULAR_VERIFY: "B+C      Verify",
+    PipelinePhase.TRIANGULAR_VERIFY: "Verify",
     PipelinePhase.COMPLETE: "Done",
     PipelinePhase.FAILED: "Failed",
+}
+
+_VERIFICATION_LABELS = {
+    "review": "Agent R  Review",
+    "triangulation": "B+C      Verify",
+    "none": "         (skip)",
 }
 
 _STATUS_STYLE = {
@@ -62,6 +68,7 @@ class RichVisualizer:
         self._live: Live | None = None
         self._start_time = time.time()
         self._provider = "unknown"
+        self._verification = "review"
         self._iteration = 0
         self._max_iterations = 1
         self._phase_states: dict[PipelinePhase, str] = {
@@ -74,6 +81,7 @@ class RichVisualizer:
     def on_pipeline_start(self, config: WorkflowConfig) -> None:
         self._provider = config.cli_provider
         self._max_iterations = config.max_iterations
+        self._verification = getattr(config, "verification", "review")
         self._start_time = time.time()
         self._live = Live(
             self._render(),
@@ -143,10 +151,12 @@ class RichVisualizer:
         )
 
         # Phase status grid
+        verify_label = _VERIFICATION_LABELS.get(self._verification, "Verify")
+        phase_labels = {**_PHASE_LABELS, PipelinePhase.TRIANGULAR_VERIFY: verify_label}
         table = Table.grid(padding=(0, 2))
         table.add_row(
             *[
-                Text.from_markup(f"{_PHASE_LABELS[p]}  {_STATUS_STYLE.get(s, s)}")
+                Text.from_markup(f"{phase_labels[p]}  {_STATUS_STYLE.get(s, s)}")
                 for p, s in self._phase_states.items()
             ]
         )

@@ -73,13 +73,13 @@ class Logger:
             ts = time.strftime("%H:%M:%S")
             line = f"[{ts}] {message}"
 
-        print(line, file=sys.stderr if level == "warn" else sys.stdout)
-
         if self._on_log:
             try:
                 self._on_log(line)
             except Exception:
                 pass  # never let visualizer errors break the pipeline
+        else:
+            print(line, file=sys.stderr if level == "warn" else sys.stdout)
 
         if self._log_file:
             with self._log_file.open("a") as f:

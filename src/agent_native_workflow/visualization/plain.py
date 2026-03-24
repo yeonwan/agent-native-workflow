@@ -26,7 +26,7 @@ class PlainVisualizer:
         print(f"[workflow] {symbol} {phase.value}: {result.upper()}")
 
     def on_log(self, message: str) -> None:
-        pass  # Already printed by Logger
+        print(message)
 
     def on_pipeline_end(self, metrics: PipelineMetrics) -> None:
         status = "CONVERGED" if metrics.converged else "MAX ITERATIONS REACHED"
