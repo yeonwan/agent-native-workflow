@@ -33,6 +33,18 @@ class ReviewStrategy:
                 "(none listed — use git diff / Read to inspect recent changes if needed)"
             )
 
+        consistency_section = ""
+        if iteration > 1:
+            consistency_section = f"""
+## Consistency Check
+Previous reviews for this run are saved at:
+`{store.run_dir}/iter-*/review.md`
+
+Read your previous review(s) before deciding. Your verdict must be consistent
+with prior reviews unless the code has actually changed since then. If the same
+issues you flagged before are still present, your verdict must remain FAIL.
+"""
+
         prompt = f"""You are a code reviewer checking whether an implementation meets \
 its requirements.
 
@@ -44,7 +56,7 @@ The following files were changed in this implementation:
 {changed_section}
 
 Read each changed file and verify the implementation against requirements.
-
+{consistency_section}
 ## Your Review
 
 For each requirement or acceptance criterion:

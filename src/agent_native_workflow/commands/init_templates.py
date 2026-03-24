@@ -99,13 +99,10 @@ cli-provider: claude
 #   triangulation  — B→C→B multi-agent consensus (thorough, slower)
 verification: review
 
-# Quality gate commands.
-# Auto-detected from project type ({project_type}):
+# Quality gate commands (auto-detected from project type: {project_type}).
+# Edit or remove to override.
 {lint_hint}
 {test_hint}
-# Uncomment and edit to override:
-# lint-cmd: make lint
-# test-cmd: make test
 
 # Pipeline limits
 # max-iterations: 5

@@ -46,10 +46,10 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     if not workflow_config_file.exists():
         lint_hint = (
-            f"# lint-cmd: {detected.lint_cmd}" if detected.lint_cmd else "# lint-cmd: make lint"
+            f"lint-cmd: {detected.lint_cmd}" if detected.lint_cmd else "# lint-cmd: make lint"
         )
         test_hint = (
-            f"# test-cmd: {detected.test_cmd}" if detected.test_cmd else "# test-cmd: make test"
+            f"test-cmd: {detected.test_cmd}" if detected.test_cmd else "# test-cmd: make test"
         )
         workflow_config_file.write_text(config_yaml(project_type, lint_hint, test_hint))
         print(f"Created {workflow_config_file}")
