@@ -406,6 +406,27 @@ def run_pipeline(
             logger.phase_start("phase3_triangular_verify", iteration=iteration)
             visualizer.on_phase_start(PipelinePhase.TRIANGULAR_VERIFY)
 
+            # Safety net: if no files changed but we somehow reached Phase 3
+            # (e.g. Agent A only touched non-code files), reuse the previous verdict.
+            if not agent_changed and iteration > 1:
+                prev_feedback = store.read_feedback(iteration - 1)
+                logger.info(
+                    "[Phase 3] No code changes since last review — reusing previous FAIL verdict"
+                )
+                store.write_feedback(
+                    iteration,
+                    prev_feedback or "No changes made. Previous review verdict (FAIL) reused.",
+                    outcome=IterationOutcome.VERIFY_FAIL,
+                    gate_results=gate_results,
+                )
+                iter_metrics.verification_status = GateStatus.FAIL
+                iter_metrics.outcome = IterationOutcome.VERIFY_FAIL
+                iter_metrics.duration_s = round(time.time() - iter_start, 2)
+                metrics.iterations.append(iter_metrics)
+                logger.phase_end("phase3_triangular_verify", "skip_unchanged", iteration=iteration)
+                visualizer.on_phase_end(PipelinePhase.TRIANGULAR_VERIFY, "fail")
+                continue
+
             task_title = ""
             if prompt_file:
                 task_title = load_prompt_title(prompt_file)
