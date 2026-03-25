@@ -79,16 +79,29 @@ def cmd_run(args: argparse.Namespace) -> int:
     store = RunStore(base_dir=base_dir)
     visualizer = make_visualizer(wcfg.visualization)
 
-    converged = run_pipeline(
-        prompt_file=effective_prompt,
-        requirements_file=requirements_file,
-        store=store,
-        max_iterations=wcfg.max_iterations,
-        agent_timeout=wcfg.timeout,
-        max_retries=wcfg.max_retries,
-        visualizer=visualizer,
-        workflow_config=wcfg,
-        parallel_gates=args.parallel_gates if hasattr(args, "parallel_gates") else None,
-    )
+    def _run_pipeline() -> bool:
+        return run_pipeline(
+            prompt_file=effective_prompt,
+            requirements_file=requirements_file,
+            store=store,
+            max_iterations=wcfg.max_iterations,
+            agent_timeout=wcfg.timeout,
+            max_retries=wcfg.max_retries,
+            visualizer=visualizer,
+            workflow_config=wcfg,
+            parallel_gates=args.parallel_gates if hasattr(args, "parallel_gates") else None,
+        )
 
+    # TextualVisualizer must run the Textual app on the main thread; the pipeline
+    # runs in a worker thread inside run_blocking().
+    try:
+        from agent_native_workflow.visualization.textual_ui import TextualVisualizer
+
+        if isinstance(visualizer, TextualVisualizer):
+            converged = visualizer.run_blocking(_run_pipeline, wcfg)
+            return 0 if converged else 1
+    except ImportError:
+        pass
+
+    converged = _run_pipeline()
     return 0 if converged else 1

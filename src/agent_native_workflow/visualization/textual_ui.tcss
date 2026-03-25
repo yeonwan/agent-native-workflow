@@ -1,0 +1,71 @@
+Screen {
+    background: $surface;
+    layers: base;
+}
+
+PipelineHeader {
+    height: 3;
+    padding: 0 2;
+    background: $boost;
+    color: $text;
+    content-align: left middle;
+}
+
+#flow {
+    height: 7;
+    padding: 1 2;
+    align: center middle;
+    background: $surface-darken-1;
+}
+
+FlowNode {
+    width: 18;
+    height: 5;
+    content-align: center middle;
+    border: round $surface-lighten-2;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+FlowNode.running {
+    border: round $warning;
+    color: $warning;
+}
+
+FlowNode.pass {
+    border: round $success;
+    color: $success;
+}
+
+FlowNode.fail {
+    border: round $error;
+    color: $error;
+}
+
+FlowArrow {
+    width: 6;
+    height: 5;
+    content-align: center middle;
+    color: $text-muted;
+}
+
+#iter-history {
+    height: auto;
+    max-height: 8;
+    border: round $primary;
+    margin: 0 1;
+}
+
+#agent-stream {
+    height: 1fr;
+    min-height: 6;
+    border: round $accent;
+    margin: 0 1 0 1;
+}
+
+#log-panel {
+    height: 1fr;
+    min-height: 6;
+    border: round $secondary;
+    margin: 0 1 1 1;
+}
