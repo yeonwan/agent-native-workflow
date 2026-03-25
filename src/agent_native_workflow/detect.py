@@ -386,7 +386,9 @@ def snapshot_working_tree(project_root: Path | None = None) -> dict[str, str]:
             timeout=10,
         )
         snapshot: dict[str, str] = {}
-        for line in result.stdout.strip().splitlines():
+        for line in result.stdout.splitlines():
+            if not line:
+                continue
             path_str = line[3:].split(" -> ")[-1].strip()
             snapshot[line] = _file_hash(root / path_str)
         return snapshot
