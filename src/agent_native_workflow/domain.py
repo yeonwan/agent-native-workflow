@@ -32,8 +32,8 @@ class AgentPermissions:
         d: dict[str, object] = {"allowed_tools": self.allowed_tools}
         if self.permission_mode:
             d["permission_mode"] = self.permission_mode
-        if self.model:
-            d["model"] = self.model
+        # Always include model so users can see and edit it, even when empty.
+        d["model"] = self.model
         return d
 
 
@@ -96,10 +96,10 @@ _DEFAULT_MODELS: dict[str, dict[str, str]] = {
         "agent_c": "claude-haiku-4-5-20251001",  # triangulation C
     },
     "copilot": {
-        "agent_a": "",  # copilot manages its own model selection
-        "agent_r": "",
-        "agent_b": "",
-        "agent_c": "",
+        "agent_a": "gpt-5-mini",
+        "agent_r": "gpt-5-mini",
+        "agent_b": "gpt-5-mini",
+        "agent_c": "gpt-5-mini",
     },
     "codex": {
         "agent_a": "o4-mini",
