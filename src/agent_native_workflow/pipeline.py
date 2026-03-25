@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import signal
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -240,6 +241,7 @@ def run_pipeline(
     os.environ.pop("CLAUDECODE", None)
 
     shutdown_requested = False
+    _signals_installed = False
 
     def _signal_handler(signum: int, _frame: object) -> None:
         nonlocal shutdown_requested
@@ -249,8 +251,10 @@ def run_pipeline(
 
     original_sigint = signal.getsignal(signal.SIGINT)
     original_sigterm = signal.getsignal(signal.SIGTERM)
-    signal.signal(signal.SIGINT, _signal_handler)
-    signal.signal(signal.SIGTERM, _signal_handler)
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGINT, _signal_handler)
+        signal.signal(signal.SIGTERM, _signal_handler)
+        _signals_installed = True
 
     start_time = time.time()
 
@@ -496,8 +500,9 @@ def run_pipeline(
             break
 
     finally:
-        signal.signal(signal.SIGINT, original_sigint)
-        signal.signal(signal.SIGTERM, original_sigterm)
+        if _signals_installed:
+            signal.signal(signal.SIGINT, original_sigint)
+            signal.signal(signal.SIGTERM, original_sigterm)
 
         total_time = round(time.time() - start_time, 2)
         metrics.ended_at = time.strftime("%Y-%m-%dT%H:%M:%S%z")

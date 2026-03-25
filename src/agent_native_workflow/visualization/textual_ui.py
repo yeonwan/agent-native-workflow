@@ -1,12 +1,14 @@
 """Textual-based pipeline dashboard (Phase 2).
 
-TextualVisualizer runs PipelineApp in a daemon thread while the pipeline
-executes synchronously.  All widget updates are posted via call_from_thread()
-so they are safe to call from the pipeline's main thread.
+TextualVisualizer runs PipelineApp on the main thread while the pipeline
+executes in a worker thread.  Communication uses a thread-safe queue instead
+of call_from_thread() to avoid deadlocks between the pipeline and the
+Textual event loop.
 """
 
 from __future__ import annotations
 
+import queue
 import threading
 import time
 from collections.abc import Callable
@@ -117,21 +119,55 @@ class PipelineApp(App[None]):
     CSS_PATH = _CSS_PATH
     BINDINGS = [("q", "quit", "Quit")]
 
-    def __init__(self, config: WorkflowConfig, ready_event: threading.Event | None = None) -> None:
+    def __init__(
+        self,
+        config: WorkflowConfig,
+        event_queue: queue.Queue[tuple[str, object]] | None = None,
+        ready_event: threading.Event | None = None,
+    ) -> None:
         super().__init__()
         self._config = config
         self._provider = config.cli_provider
         self._verification = getattr(config, "verification", "review")
         self._max_iterations = config.max_iterations
         self._current_iter = 0
-        self._iter_phase_states: dict[str, str] = {}  # tracks per-iter for history
+        self._iter_phase_states: dict[str, str] = {}
         self._iter_start_time: float = time.time()
+        self._event_queue = event_queue
         self._ready_event = ready_event
 
     def on_mount(self) -> None:
-        """Signal the pipeline worker that the Textual event loop is ready."""
+        """Start draining the event queue and signal readiness."""
+        if self._event_queue is not None:
+            self.set_interval(0.05, self._drain_queue)
         if self._ready_event:
             self._ready_event.set()
+
+    def _drain_queue(self) -> None:
+        """Process all pending events from the pipeline worker thread."""
+        if self._event_queue is None:
+            return
+        for _ in range(200):
+            try:
+                kind, data = self._event_queue.get_nowait()
+            except queue.Empty:
+                break
+            if kind == "iteration_start":
+                it, mx = data  # type: ignore[misc]
+                self.update_iteration(it, mx)
+            elif kind == "phase_start":
+                self.update_phase(data, "running")  # type: ignore[arg-type]
+            elif kind == "phase_end":
+                phase, result = data  # type: ignore[misc]
+                self.update_phase(phase, result)
+            elif kind == "agent_stream":
+                self.append_agent_stream(data)  # type: ignore[arg-type]
+            elif kind == "log":
+                self.append_log(data)  # type: ignore[arg-type]
+            elif kind == "pipeline_end":
+                self.show_summary(data)  # type: ignore[arg-type]
+            elif kind == "exit":
+                self.exit()
 
     def compose(self) -> ComposeResult:
         verify_label = _VERIFY_LABELS.get(self._verification, "Verify")
@@ -235,12 +271,14 @@ class TextualVisualizer:
         3. ``run_blocking`` pre-creates the app, starts the pipeline in a worker thread,
            then calls ``app.run()`` which blocks the main thread (Textual requirement).
 
-    All ``on_*`` callbacks from the pipeline worker thread use ``call_from_thread``
-    to safely post widget updates to the Textual event loop.
+    All ``on_*`` callbacks enqueue events into a thread-safe queue.  The Textual
+    app drains the queue at 20 Hz via ``set_interval``, keeping the pipeline
+    thread fully decoupled from the event loop.
     """
 
     def __init__(self) -> None:
         self._app: PipelineApp | None = None
+        self._queue: queue.Queue[tuple[str, object]] = queue.Queue()
 
     def run_blocking(
         self,
@@ -252,23 +290,18 @@ class TextualVisualizer:
         Returns the bool result of ``pipeline_fn()``.
         """
         ready = threading.Event()
-        self._app = PipelineApp(config, ready_event=ready)
+        self._app = PipelineApp(config, event_queue=self._queue, ready_event=ready)
         result: list[bool] = [False]
 
         def _worker() -> None:
-            # Wait until Textual's event loop is running before calling call_from_thread
             ready.wait(timeout=10)
             try:
                 result[0] = pipeline_fn()
             except Exception as exc:
-                if self._app:
-                    self._app.call_from_thread(
-                        self._app.append_log, f"[bold red]ERROR:[/] {exc}"
-                    )
+                self._queue.put(("log", f"[bold red]ERROR:[/] {exc}"))
             finally:
                 time.sleep(1.0)
-                if self._app:
-                    self._app.call_from_thread(self._app.exit)
+                self._queue.put(("exit", None))
 
         worker = threading.Thread(target=_worker, daemon=True)
         worker.start()
@@ -277,32 +310,22 @@ class TextualVisualizer:
         return result[0]
 
     def on_pipeline_start(self, config: WorkflowConfig) -> None:
-        # App is pre-created by run_blocking(); nothing to do here.
-        # (If called outside run_blocking, app stays None and all on_* become no-ops.)
         pass
 
     def on_iteration_start(self, iteration: int, max_iterations: int) -> None:
-        if self._app:
-            self._app.call_from_thread(self._app.update_iteration, iteration, max_iterations)
+        self._queue.put(("iteration_start", (iteration, max_iterations)))
 
     def on_phase_start(self, phase: PipelinePhase) -> None:
-        if self._app:
-            self._app.call_from_thread(self._app.update_phase, phase, "running")
+        self._queue.put(("phase_start", phase))
 
     def on_phase_end(self, phase: PipelinePhase, result: str) -> None:
-        if self._app:
-            self._app.call_from_thread(self._app.update_phase, phase, result)
+        self._queue.put(("phase_end", (phase, result)))
 
     def on_agent_stream(self, line: str) -> None:
-        if self._app:
-            self._app.call_from_thread(self._app.append_agent_stream, line)
+        self._queue.put(("agent_stream", line))
 
     def on_log(self, message: str) -> None:
-        if self._app:
-            self._app.call_from_thread(self._app.append_log, message)
+        self._queue.put(("log", message))
 
     def on_pipeline_end(self, metrics: PipelineMetrics) -> None:
-        if self._app:
-            self._app.call_from_thread(self._app.show_summary, metrics)
-            time.sleep(1)
-            self._app.call_from_thread(self._app.exit)
+        self._queue.put(("pipeline_end", metrics))
