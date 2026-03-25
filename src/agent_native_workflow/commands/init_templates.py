@@ -1,4 +1,4 @@
-"""String templates for `agn init` (keeps init command module readable)."""
+"""String templates for `anw init` (keeps init command module readable)."""
 
 PROMPT_YAML = """\
 # PROMPT.yaml — Agent A task definition
@@ -9,9 +9,9 @@ PROMPT_YAML = """\
 #   - If you delete this file, Agent A will read requirements.md directly instead
 #
 # TIP: If your Jira ticket already describes everything, you can skip this file
-#      and just run: agn run --requirements path/to/ticket.docx
+#      and just run: anw run --requirements path/to/ticket.docx
 #
-# Run `agn run` when ready. Only `title` is required; everything else is optional.
+# Run `anw run` when ready. Only `title` is required; everything else is optional.
 
 title: "Implement requirements"
 
@@ -49,7 +49,7 @@ REQUIREMENTS_MD = """\
   Source of truth for verification (review mode: Agent R; triangulation: B/C).
   Write each requirement as a testable statement.
   Tip: you can replace this file with a Jira ticket (.docx or .pdf) using:
-       agn run --requirements path/to/PROJ-123.docx
+       anw run --requirements path/to/PROJ-123.docx
 -->
 
 ## Functional Requirements

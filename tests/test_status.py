@@ -1,4 +1,4 @@
-"""Tests for 'agn status' command — RunStore.load_run_summary / list_runs and _cmd_status."""
+"""Tests for 'anw status' command — RunStore.load_run_summary / list_runs and _cmd_status."""
 
 from __future__ import annotations
 

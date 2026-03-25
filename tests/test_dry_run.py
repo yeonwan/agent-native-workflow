@@ -1,4 +1,4 @@
-"""Tests for 'agn run --dry-run' command — prints prompt and exits without running pipeline."""
+"""Tests for 'anw run --dry-run' command — prints prompt and exits without running pipeline."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Tests for `agn init` Option-B provider update logic."""
+"""Tests for `anw init` Option-B provider update logic."""
 
 from __future__ import annotations
 

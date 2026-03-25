@@ -90,22 +90,22 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(f"Skipped {codereview_file} (already exists)")
 
     gitignore = Path(".gitignore")
-    agn_entry = ".agent-native-workflow/runs/"
+    anw_entry = ".agent-native-workflow/runs/"
     if gitignore.is_file():
-        if agn_entry not in gitignore.read_text():
+        if anw_entry not in gitignore.read_text():
             with gitignore.open("a") as f:
-                f.write(f"\n# agent-native-workflow runtime artifacts\n{agn_entry}\n")
-            print(f"Added '{agn_entry}' to .gitignore")
+                f.write(f"\n# agent-native-workflow runtime artifacts\n{anw_entry}\n")
+            print(f"Added '{anw_entry}' to .gitignore")
     else:
-        gitignore.write_text(f"# agent-native-workflow runtime artifacts\n{agn_entry}\n")
-        print(f"Created .gitignore with '{agn_entry}'")
+        gitignore.write_text(f"# agent-native-workflow runtime artifacts\n{anw_entry}\n")
+        print(f"Created .gitignore with '{anw_entry}'")
 
     print()
     print("Next steps:")
     print(f"  1. Edit {prompt_file} — describe what to build")
     print(f"  2. Edit {requirements_file} — list testable requirements")
     print("  3. Set verification in config.yaml (none / review / triangulation)")
-    print("  4. Run: agn run --cli <provider>")
-    print("     Or: agn run --requirements path/to/ticket.docx")
+    print("  4. Run: anw run --cli <provider>")
+    print("     Or: anw run --requirements path/to/ticket.docx")
     print(f"  5. (Optional) Edit {codereview_file} — code conventions for Agent R")
     return 0

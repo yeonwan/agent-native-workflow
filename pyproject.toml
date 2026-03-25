@@ -18,7 +18,7 @@ dependencies = [
 
 [project.scripts]
 agent-native-workflow = "agent_native_workflow.cli:main"
-agn = "agent_native_workflow.cli:main"
+anw = "agent_native_workflow.cli:main"
 
 [dependency-groups]
 dev = [

@@ -147,7 +147,7 @@ def cmd_export(args: argparse.Namespace) -> int:
         if run_id:
             print(f"Run '{run_id}' not found.", file=sys.stderr)
         else:
-            print("No runs found. Run 'agn run' first.", file=sys.stderr)
+            print("No runs found. Run 'anw run' first.", file=sys.stderr)
         return 1
 
     report = _build_report(summary, base_dir)

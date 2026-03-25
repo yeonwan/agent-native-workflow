@@ -11,7 +11,7 @@ reference/
 .venv
 
 # agent-native-workflow runtime artifacts
-.agn/
+
 .agent-native-workflow/
 
 # agent-native-workflow runtime artifacts

@@ -15,10 +15,10 @@ def build_parser() -> ArgumentParser:
         ),
         epilog=(
             "Examples:\n"
-            "  agn init && agn run --cli claude\n"
-            "  agn run --verification none --no-ui\n"
-            "  agn verify --verification triangulation\n"
-            "  agn status --list\n"
+            "  anw init && anw run --cli claude\n"
+            "  anw run --verification none --no-ui\n"
+            "  anw verify --verification triangulation\n"
+            "  anw status --list\n"
             "\n"
             "See README.md for verification modes and configuration."
         ),

@@ -57,6 +57,13 @@ separate "Suggestions" section.
 
         prompt = f"""You are a senior developer reviewing code for correctness AND quality.
 
+## Important: What This Review Covers
+The pipeline has already run all configured quality gates (lint, tests, etc.) and
+they have passed. **Do not attempt to re-run linters or test suites.** You do not
+have permission to execute arbitrary shell commands here, and doing so is unnecessary.
+Your job is to review the *code and requirements* — not to re-verify what the gates
+already confirmed.
+
 ## Part 1: Requirements Check (Blocking)
 Read `{requirements_file}` — this is the source of truth.
 
