@@ -248,6 +248,35 @@ def build_parser() -> ArgumentParser:
         help="Artifact base directory (default: .agent-native-workflow)",
     )
 
+    # export
+    export_p = sub.add_parser(
+        "export",
+        formatter_class=RawDescriptionHelpFormatter,
+        help="Export a run as a structured Markdown report",
+        description=(
+            "Produces a single Markdown document from run artifacts, "
+            "suitable for sharing in a PR description, Notion page, or commit message."
+        ),
+    )
+    export_p.add_argument(
+        "--run",
+        default=None,
+        metavar="RUN_ID",
+        help="Export a specific run ID (e.g. run-20260322-120000); default: latest run",
+    )
+    export_p.add_argument(
+        "--output",
+        default=None,
+        metavar="FILE",
+        help="Write report to FILE instead of stdout; parent directories are created if needed",
+    )
+    export_p.add_argument(
+        "--output-dir",
+        default=None,
+        metavar="DIR",
+        help="Artifact base directory (default: .agent-native-workflow)",
+    )
+
     # log
     log_p = sub.add_parser(
         "log",
