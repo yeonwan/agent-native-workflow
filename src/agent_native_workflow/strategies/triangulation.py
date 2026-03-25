@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from agent_native_workflow.detect import ProjectConfig
@@ -36,6 +37,7 @@ class TriangulationStrategy:
         max_retries: int,
         logger: Logger,
         verification_session_id: str | None = None,
+        on_output: Callable[[str], None] | None = None,
     ) -> VerificationResult:
         _ = verification_session_id
         cfg = config
@@ -95,6 +97,7 @@ Output structured markdown."""
             timeout=timeout,
             max_retries=max_retries,
             logger=logger,
+            on_output=on_output,
         ).output
         b_review_path = store.write_b_review(iteration, output_b)
         logger.info(f"Senior dev review saved → {b_review_path}")
@@ -147,6 +150,7 @@ solely because the developer did not use the exact wording from requirements."""
             timeout=timeout,
             max_retries=max_retries,
             logger=logger,
+            on_output=on_output,
         ).output
         c_report_path = store.write_c_report(iteration, output_c)
         logger.info(f"PM acceptance report saved → {c_report_path}")
@@ -194,6 +198,7 @@ If you OBJECT, explain your technical objections. Do NOT output the marker."""
             timeout=timeout,
             max_retries=max_retries,
             logger=logger,
+            on_output=on_output,
         ).output
         store.write_b_confirmation(iteration, output_b_confirm)
         logger.info(f"Senior dev confirmation saved → {store.b_confirmation_path(iteration)}")

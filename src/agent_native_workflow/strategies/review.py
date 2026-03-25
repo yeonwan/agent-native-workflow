@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from agent_native_workflow.detect import ProjectConfig
@@ -25,6 +26,7 @@ class ReviewStrategy:
         max_retries: int,
         logger: Logger,
         verification_session_id: str | None = None,
+        on_output: Callable[[str], None] | None = None,
     ) -> VerificationResult:
         if config.changed_files:
             changed_section = "\n".join(config.changed_files)
@@ -102,6 +104,7 @@ Advisory suggestions should NOT prevent approval."""
             timeout=timeout,
             max_retries=max_retries,
             logger=logger,
+            on_output=on_output,
         )
         output = run_out.output
         review_path = store.write_review(iteration, output)

@@ -227,6 +227,7 @@ class _ReviewRunner:
         timeout: int = 300,
         max_retries: int = 2,
         logger=None,
+        on_output=None,
     ) -> RunResult:
         self.verification_sessions.append(session_id)
         return RunResult(f"report\n{REVIEW_APPROVE_MARKER}\n", session_id="r-sess-1")
@@ -290,6 +291,7 @@ class _FlakyReview:
         timeout: int = 300,
         max_retries: int = 2,
         logger=None,
+        on_output=None,
     ) -> RunResult:
         self.verification_sessions.append(session_id)
         self._n += 1

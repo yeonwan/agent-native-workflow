@@ -48,6 +48,7 @@ class _ApproveRunner:
         timeout: int = 300,
         max_retries: int = 2,
         logger=None,
+        on_output=None,
     ) -> RunResult:
         assert "src/foo.py" in prompt
         return RunResult(output="All good.\nREVIEW_APPROVE\n", session_id=None)
@@ -66,6 +67,7 @@ class _RejectRunner:
         timeout: int = 300,
         max_retries: int = 2,
         logger=None,
+        on_output=None,
     ) -> RunResult:
         return RunResult(output="Missing error handling in cli.py.", session_id=None)
 
@@ -109,6 +111,7 @@ class _ResumeReviewRunner:
         timeout: int = 300,
         max_retries: int = 2,
         logger=None,
+        on_output=None,
     ) -> RunResult:
         self.last_session_in.append(session_id)
         return RunResult(output="ok\nREVIEW_APPROVE\n", session_id="review-sess-42")
@@ -189,6 +192,7 @@ class _SequenceRunner:
         timeout: int = 300,
         max_retries: int = 2,
         logger=None,
+        on_output=None,
     ) -> RunResult:
         out = self._outputs[self._i]
         self._i += 1
@@ -340,6 +344,7 @@ class _CaptureRunner:
         timeout: int = 300,
         max_retries: int = 2,
         logger=None,
+        on_output=None,
     ) -> RunResult:
         self.last_prompt = prompt
         return RunResult(output="ok\nREVIEW_APPROVE\n", session_id=None)

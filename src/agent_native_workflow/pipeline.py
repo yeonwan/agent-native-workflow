@@ -382,6 +382,7 @@ def run_pipeline(
                 use_parallel=use_parallel,
                 timeout=agent_timeout,
                 logger=logger,
+                on_output=visualizer.on_agent_stream,
             )
             iter_metrics.gate_results = gate_results
 
@@ -454,6 +455,7 @@ def run_pipeline(
                 max_retries=max_retries,
                 logger=logger,
                 verification_session_id=agent_r_session,
+                on_output=visualizer.on_agent_stream,
             )
             if verif_result.next_agent_r_session_id is not None:
                 agent_r_session = verif_result.next_agent_r_session_id

@@ -48,12 +48,21 @@ def run_gate_command(cmd: str, timeout: int = 300) -> tuple[bool, str]:
         return False, f"Command failed: {e}"
 
 
+def _emit(on_output: Callable[[str], None] | None, text: str) -> None:
+    """Send each line of text to the on_output callback."""
+    if on_output is None:
+        return
+    for line in text.splitlines():
+        on_output(line)
+
+
 def run_gates_sequential(
     *,
     gates: list[tuple[str, str]],
     callable_gates: list[tuple[str, Callable[[], tuple[bool, str]]]],
     timeout: int,
     logger: Logger,
+    on_output: Callable[[str], None] | None = None,
 ) -> tuple[bool, str, list[GateResult]]:
     results: list[GateResult] = []
     gate_pass = True
@@ -63,7 +72,9 @@ def run_gates_sequential(
         if not gate_pass:
             break
         logger.info(f"[Phase 2] Running {name}: {cmd}")
+        on_output and on_output(f"─── gate: {name} ───")
         passed, output = run_gate_command(cmd, timeout)
+        _emit(on_output, output)
         status = GateStatus.PASS if passed else GateStatus.FAIL
         results.append(GateResult(name=name, status=status, output=_for_storage(output)))
         if passed:
@@ -77,10 +88,12 @@ def run_gates_sequential(
         if not gate_pass:
             break
         logger.info(f"[Phase 2] Running callable:{cname}")
+        on_output and on_output(f"─── gate: {cname} ───")
         try:
             passed, output = cfunc()
         except Exception as e:
             passed, output = False, f"Gate '{cname}' raised: {e}"
+        _emit(on_output, output)
         status = GateStatus.PASS if passed else GateStatus.FAIL
         results.append(
             GateResult(
@@ -105,6 +118,7 @@ def run_gates_parallel(
     callable_gates: list[tuple[str, Callable[[], tuple[bool, str]]]],
     timeout: int,
     logger: Logger,
+    on_output: Callable[[str], None] | None = None,
 ) -> tuple[bool, str, list[GateResult]]:
     total = len(gates) + len(callable_gates)
     logger.info(f"[Phase 2] Running {total} gates in parallel")
@@ -129,6 +143,8 @@ def run_gates_parallel(
         for future in as_completed(future_map):
             name, cmd = future_map[future]
             passed, output = future.result()
+            on_output and on_output(f"─── gate: {name} ───")
+            _emit(on_output, output)
             status = GateStatus.PASS if passed else GateStatus.FAIL
             results.append(GateResult(name=name, status=status, output=_for_storage(output)))
             if passed:
@@ -149,6 +165,7 @@ def run_quality_gates(
     use_parallel: bool,
     timeout: int,
     logger: Logger,
+    on_output: Callable[[str], None] | None = None,
 ) -> tuple[bool, str, list[GateResult]]:
     total_gates = len(gates) + len(callable_gates)
     if not total_gates:
@@ -156,8 +173,10 @@ def run_quality_gates(
         return True, "", []
     if use_parallel:
         return run_gates_parallel(
-            gates=gates, callable_gates=callable_gates, timeout=timeout, logger=logger
+            gates=gates, callable_gates=callable_gates, timeout=timeout, logger=logger,
+            on_output=on_output,
         )
     return run_gates_sequential(
-        gates=gates, callable_gates=callable_gates, timeout=timeout, logger=logger
+        gates=gates, callable_gates=callable_gates, timeout=timeout, logger=logger,
+        on_output=on_output,
     )
