@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -24,24 +24,42 @@ def test_copilot_runner_supports_file_tools() -> None:
     assert runner.supports_file_tools is True
 
 
+# ── Popen mock helpers ────────────────────────────────────────────────────────
+
+
+class _FakeStderr:
+    def read(self) -> str:
+        return ""
+
+
+def _make_popen(captured: list[list[str]] | None = None, returncode: int = 0):
+    """Return a fake Popen class that records the command and succeeds."""
+
+    class _FakePopen:
+        def __init__(self, cmd: list[str], **_kwargs: object) -> None:
+            if captured is not None:
+                captured.append(cmd)
+            self.returncode = returncode
+            self.stdout = iter(["ok\n"])
+            self.stderr = _FakeStderr()
+
+        def wait(self, timeout: float | None = None) -> int:
+            return self.returncode
+
+        def kill(self) -> None:
+            pass
+
+    return _FakePopen
+
+
 # ── Command format ────────────────────────────────────────────────────────────
 
 
 def _run_and_capture(runner: GitHubCopilotRunner, prompt: str = "do something") -> list[str]:
-    """Run the runner with a mocked subprocess and return the captured command."""
+    """Run the runner with a mocked Popen and return the captured command."""
     captured: list[list[str]] = []
-
-    fake_result = MagicMock()
-    fake_result.returncode = 0
-    fake_result.stdout = "ok"
-
-    def fake_run(cmd, **_kwargs):
-        captured.append(cmd)
-        return fake_result
-
-    with patch("agent_native_workflow.runners.copilot.subprocess.run", side_effect=fake_run):
+    with patch("agent_native_workflow.runners.copilot.subprocess.Popen", _make_popen(captured)):
         runner.run(prompt, timeout=10, max_retries=1)
-
     return captured[0]
 
 
@@ -86,12 +104,8 @@ def test_copilot_filters_out_non_shell_tools() -> None:
 
 
 def test_copilot_returns_none_session_id_when_share_file_missing(tmp_path) -> None:
-    fake_result = MagicMock()
-    fake_result.returncode = 0
-    fake_result.stdout = "output"
-
     missing = tmp_path / "no-such-file.md"
-    with patch("agent_native_workflow.runners.copilot.subprocess.run", return_value=fake_result):
+    with patch("agent_native_workflow.runners.copilot.subprocess.Popen", _make_popen()):
         with patch("agent_native_workflow.runners.copilot._SHARE_FILE", missing):
             runner = GitHubCopilotRunner()
             result = runner.run("prompt", timeout=10, max_retries=1)
@@ -109,11 +123,7 @@ def test_copilot_returns_parsed_session_id(tmp_path) -> None:
         "> - **Started:** 2026-03-24, 11:15:09 p.m.  \n"
     )
 
-    fake_result = MagicMock()
-    fake_result.returncode = 0
-    fake_result.stdout = "output"
-
-    with patch("agent_native_workflow.runners.copilot.subprocess.run", return_value=fake_result):
+    with patch("agent_native_workflow.runners.copilot.subprocess.Popen", _make_popen()):
         with patch("agent_native_workflow.runners.copilot._SHARE_FILE", share_file):
             runner = GitHubCopilotRunner()
             result = runner.run("prompt", timeout=10, max_retries=1)
@@ -128,17 +138,9 @@ def test_copilot_adds_share_flag() -> None:
 
 
 def test_copilot_adds_resume_flag_when_session_id_given() -> None:
-    fake_result = MagicMock()
-    fake_result.returncode = 0
-    fake_result.stdout = "output"
     captured: list[list[str]] = []
-
-    def fake_run(cmd, **_kwargs):
-        captured.append(cmd)
-        return fake_result
-
     sid = "abc-123"
-    with patch("agent_native_workflow.runners.copilot.subprocess.run", side_effect=fake_run):
+    with patch("agent_native_workflow.runners.copilot.subprocess.Popen", _make_popen(captured)):
         GitHubCopilotRunner().run("prompt", session_id=sid, timeout=10, max_retries=1)
 
     cmd = captured[0]
@@ -150,6 +152,24 @@ def test_copilot_omits_resume_flag_when_no_session_id() -> None:
     runner = GitHubCopilotRunner()
     cmd = _run_and_capture(runner)
     assert "--resume" not in cmd
+
+
+def test_copilot_ignores_permission_mode() -> None:
+    # permission_mode is a Claude Code concept — must not raise and must not appear in cmd
+    runner = GitHubCopilotRunner(permission_mode="bypassPermissions")
+    cmd = _run_and_capture(runner)
+    assert "bypassPermissions" not in cmd
+    assert "--permission-mode" not in cmd
+
+
+def test_copilot_raises_when_binary_missing() -> None:
+    runner = GitHubCopilotRunner()
+    with patch(
+        "agent_native_workflow.runners.copilot.subprocess.Popen",
+        side_effect=FileNotFoundError,
+    ):
+        with pytest.raises(RuntimeError, match="copilot.*CLI not found"):
+            runner.run("prompt", timeout=10, max_retries=1)
 
 
 # ── _parse_session_id ─────────────────────────────────────────────────────────
@@ -169,24 +189,6 @@ def test_parse_session_id_returns_none_when_no_match(tmp_path: Path) -> None:
     f = tmp_path / "session.md"
     f.write_text("# no session info here\n")
     assert _parse_session_id(f) is None
-
-
-def test_copilot_ignores_permission_mode() -> None:
-    # permission_mode is a Claude Code concept — must not raise and must not appear in cmd
-    runner = GitHubCopilotRunner(permission_mode="bypassPermissions")
-    cmd = _run_and_capture(runner)
-    assert "bypassPermissions" not in cmd
-    assert "--permission-mode" not in cmd
-
-
-def test_copilot_raises_when_binary_missing() -> None:
-    runner = GitHubCopilotRunner()
-    with patch(
-        "agent_native_workflow.runners.copilot.subprocess.run",
-        side_effect=FileNotFoundError,
-    ):
-        with pytest.raises(RuntimeError, match="copilot.*CLI not found"):
-            runner.run("prompt", timeout=10, max_retries=1)
 
 
 # ── domain.py copilot tool definitions ───────────────────────────────────────

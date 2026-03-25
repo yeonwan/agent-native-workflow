@@ -2,13 +2,30 @@ from __future__ import annotations
 
 import re
 import subprocess
+import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from agent_native_workflow.log import Logger
 from agent_native_workflow.runners.base import RunResult
 
 _SHARE_FILE = Path(".agent-native-workflow/copilot-session.md")
+
+
+def _stream_stdout(
+    proc: subprocess.Popen[str],
+    output_lines: list[str],
+    on_output: Callable[[str], None] | None,
+) -> None:
+    """Read proc.stdout line by line, appending to output_lines and calling on_output."""
+    if proc.stdout is None:
+        return
+    for line in proc.stdout:
+        stripped = line.rstrip("\n")
+        output_lines.append(stripped)
+        if on_output:
+            on_output(stripped)
 
 
 class GitHubCopilotRunner:
@@ -46,6 +63,7 @@ class GitHubCopilotRunner:
         timeout: int = 300,
         max_retries: int = 2,
         logger: Logger | None = None,
+        on_output: Callable[[str], None] | None = None,
     ) -> RunResult:
         for attempt in range(1, max_retries + 1):
             try:
@@ -61,22 +79,47 @@ class GitHubCopilotRunner:
                 for tool in self._allowed_tools:
                     cmd.append(f"--allow-tool={tool}")
 
-                result = subprocess.run(
+                proc = subprocess.Popen(
                     cmd,
-                    capture_output=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                     text=True,
-                    timeout=timeout,
                 )
-                if result.returncode == 0:
+
+                output_lines: list[str] = []
+                reader = threading.Thread(
+                    target=_stream_stdout,
+                    args=(proc, output_lines, on_output),
+                    daemon=True,
+                )
+                reader.start()
+
+                try:
+                    proc.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    reader.join(timeout=5)
+                    if logger:
+                        logger.warn(f"copilot timed out after {timeout}s (attempt {attempt})")
+                    if attempt < max_retries:
+                        backoff = 2**attempt
+                        if logger:
+                            logger.info(f"Retrying in {backoff}s...")
+                        time.sleep(backoff)
+                    continue
+
+                reader.join(timeout=5)
+                full_output = "\n".join(output_lines)
+
+                if proc.returncode == 0:
                     parsed_id = _parse_session_id(_SHARE_FILE)
-                    return RunResult(output=result.stdout, session_id=parsed_id)
+                    return RunResult(output=full_output, session_id=parsed_id)
                 if logger:
-                    logger.warn(f"copilot exited with code {result.returncode} (attempt {attempt})")
-                if result.stderr and logger:
-                    logger.warn(f"stderr: {result.stderr[:500]}")
-            except subprocess.TimeoutExpired:
-                if logger:
-                    logger.warn(f"copilot timed out after {timeout}s (attempt {attempt})")
+                    logger.warn(f"copilot exited with code {proc.returncode} (attempt {attempt})")
+                    stderr_out = proc.stderr.read() if proc.stderr else ""
+                    if stderr_out:
+                        logger.warn(f"stderr: {stderr_out[:500]}")
+
             except FileNotFoundError as exc:
                 raise RuntimeError(
                     "'copilot' CLI not found in PATH. Install GitHub Copilot CLI first."

@@ -97,7 +97,7 @@ class WorkflowConfig:
     model_verify: str = ""
 
     # Visualization
-    visualization: str = "rich"  # "rich" | "plain"
+    visualization: str = "textual"  # "textual" | "rich" | "plain"
 
     # Quality gate commands — override auto-detected values from detect.py
     # Set in pyproject.toml [tool.agent-native-workflow], .agent-native-workflow.toml, or env vars

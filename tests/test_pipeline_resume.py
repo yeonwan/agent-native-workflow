@@ -44,6 +44,7 @@ def test_minimal_class_satisfies_agent_runner_protocol() -> None:
             timeout: int = 300,
             max_retries: int = 2,
             logger=None,
+            on_output=None,
         ) -> RunResult:
             return RunResult(output=prompt[:10], session_id=None)
 
@@ -89,6 +90,7 @@ class _ResumeAgentA:
         timeout: int = 300,
         max_retries: int = 2,
         logger=None,
+        on_output=None,
     ) -> RunResult:
         self.session_ids.append(session_id)
         return RunResult("ok\nLOOP_COMPLETE\n", session_id="agent-sess-1")
@@ -110,6 +112,7 @@ class _NoResumeAgentA:
         timeout: int = 300,
         max_retries: int = 2,
         logger=None,
+        on_output=None,
     ) -> RunResult:
         self.session_ids.append(session_id)
         return RunResult("ok\nLOOP_COMPLETE\n", session_id=None)

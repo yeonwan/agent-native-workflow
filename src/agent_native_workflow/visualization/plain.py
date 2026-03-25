@@ -25,6 +25,9 @@ class PlainVisualizer:
         symbol = "✓" if result == "pass" else "✗"
         print(f"[workflow] {symbol} {phase.value}: {result.upper()}")
 
+    def on_agent_stream(self, line: str) -> None:
+        pass  # plain mode does not stream agent output
+
     def on_log(self, message: str) -> None:
         print(message)
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import time
+from collections.abc import Callable
 
 from agent_native_workflow.log import Logger
 from agent_native_workflow.runners.base import RunResult
@@ -30,6 +31,7 @@ class OpenAICodexRunner:
         timeout: int = 300,
         max_retries: int = 2,
         logger: Logger | None = None,
+        on_output: Callable[[str], None] | None = None,  # noqa: ARG002 — streaming not yet supported
     ) -> RunResult:
         _ = session_id  # not supported
 

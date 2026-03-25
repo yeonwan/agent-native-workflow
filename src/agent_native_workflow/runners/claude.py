@@ -1,11 +1,28 @@
 from __future__ import annotations
 
 import subprocess
+import threading
 import time
 import uuid
+from collections.abc import Callable
 
 from agent_native_workflow.log import Logger
 from agent_native_workflow.runners.base import RunResult
+
+
+def _stream_stdout(
+    proc: subprocess.Popen[str],
+    output_lines: list[str],
+    on_output: Callable[[str], None] | None,
+) -> None:
+    """Read proc.stdout line by line, appending to output_lines and calling on_output."""
+    if proc.stdout is None:
+        return
+    for line in proc.stdout:
+        stripped = line.rstrip("\n")
+        output_lines.append(stripped)
+        if on_output:
+            on_output(stripped)
 
 
 class ClaudeCodeRunner:
@@ -13,6 +30,7 @@ class ClaudeCodeRunner:
 
     Supports autonomous file editing, so supports_file_tools = True.
     Session: first call uses ``--session-id <uuid>``; later calls use ``--resume <id>``.
+    Agent output is streamed line-by-line via an optional ``on_output`` callback.
     """
 
     provider_name = "claude"
@@ -39,6 +57,7 @@ class ClaudeCodeRunner:
         timeout: int = 300,
         max_retries: int = 2,
         logger: Logger | None = None,
+        on_output: Callable[[str], None] | None = None,
     ) -> RunResult:
         new_session_id: str | None = None
 
@@ -64,22 +83,47 @@ class ClaudeCodeRunner:
 
                 cmd.extend(["-p", prompt])
 
-                result = subprocess.run(
+                proc = subprocess.Popen(
                     cmd,
-                    capture_output=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                     text=True,
-                    timeout=timeout,
                 )
-                if result.returncode == 0:
+
+                output_lines: list[str] = []
+                reader = threading.Thread(
+                    target=_stream_stdout,
+                    args=(proc, output_lines, on_output),
+                    daemon=True,
+                )
+                reader.start()
+
+                try:
+                    proc.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    reader.join(timeout=5)
+                    if logger:
+                        logger.warn(f"claude timed out after {timeout}s (attempt {attempt})")
+                    if attempt < max_retries:
+                        backoff = 2**attempt
+                        if logger:
+                            logger.info(f"Retrying in {backoff}s...")
+                        time.sleep(backoff)
+                    continue
+
+                reader.join(timeout=5)
+                full_output = "\n".join(output_lines)
+
+                if proc.returncode == 0:
                     sid = session_id if session_id is not None else new_session_id
-                    return RunResult(output=result.stdout, session_id=sid)
+                    return RunResult(output=full_output, session_id=sid)
                 if logger:
-                    logger.warn(f"claude exited with code {result.returncode} (attempt {attempt})")
-                if result.stderr and logger:
-                    logger.warn(f"stderr: {result.stderr[:500]}")
-            except subprocess.TimeoutExpired:
-                if logger:
-                    logger.warn(f"claude timed out after {timeout}s (attempt {attempt})")
+                    logger.warn(f"claude exited with code {proc.returncode} (attempt {attempt})")
+                    stderr_out = proc.stderr.read() if proc.stderr else ""
+                    if stderr_out:
+                        logger.warn(f"stderr: {stderr_out[:500]}")
+
             except FileNotFoundError as exc:
                 raise RuntimeError(
                     "'claude' CLI not found in PATH. Install Claude Code first."

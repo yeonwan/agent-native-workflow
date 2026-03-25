@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -49,6 +50,7 @@ class AgentRunner(Protocol):
         timeout: int = 300,
         max_retries: int = 2,
         logger: Logger | None = None,
+        on_output: Callable[[str], None] | None = None,
     ) -> RunResult:
         """Execute the prompt.
 

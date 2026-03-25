@@ -113,6 +113,10 @@ class RichVisualizer:
             self._phase_states[phase] = result
         self._refresh()
 
+    def on_agent_stream(self, line: str) -> None:
+        self._log_lines.append(line)
+        self._refresh()
+
     def on_log(self, message: str) -> None:
         self._log_lines.append(message)
         self._refresh()

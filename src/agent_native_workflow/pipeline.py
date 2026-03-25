@@ -43,6 +43,7 @@ def _run_implementation_phase(
     max_retries: int,
     logger: Logger,
     session_id: str | None = None,
+    on_output: Callable[[str], None] | None = None,
 ) -> str | None:
     """Phase 1: Agent A implementation/fix.
 
@@ -87,6 +88,7 @@ def _run_implementation_phase(
         timeout=timeout,
         max_retries=max_retries,
         logger=logger,
+        on_output=on_output,
     )
     store.write_agent_output(iteration, run_result.output)
 
@@ -300,6 +302,7 @@ def run_pipeline(
                 max_retries=max_retries,
                 logger=logger,
                 session_id=agent_a_session,
+                on_output=visualizer.on_agent_stream,
             )
             if runner.supports_resume and new_session_id is not None:
                 agent_a_session = new_session_id
