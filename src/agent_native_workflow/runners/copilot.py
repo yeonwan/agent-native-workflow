@@ -8,17 +8,19 @@ from pathlib import Path
 from agent_native_workflow.log import Logger
 from agent_native_workflow.runners.base import RunResult
 
+_SHARE_FILE = Path(".agent-native-workflow/copilot-session.md")
+
 
 class GitHubCopilotRunner:
     """Runner using GitHub Copilot CLI (copilot).
 
-    Uses ``copilot --resume=<id> <prompt>`` for a stable session across calls.
-    ``supports_file_tools = False``: returns text only, so the pipeline
-    will parse Agent A output as markdown code blocks and apply them
-    to the working directory.
+    Session persistence: ``--share .agent-native-workflow/copilot-session.md``
+    writes a session markdown file after each run; the session ID is parsed
+    from it and passed back via ``RunResult.session_id``.  Subsequent calls
+    pass ``--resume <session_id>`` to continue the same session.
 
-    Note: allowed_tools and permission_mode are Claude-specific concepts
-    and are intentionally ignored by this runner.
+    Note: permission_mode is a Claude-specific concept and is intentionally
+    ignored by this runner.
     """
 
     provider_name = "copilot"
@@ -40,7 +42,7 @@ class GitHubCopilotRunner:
         self,
         prompt: str,
         *,
-        session_id: str | None = None,  # noqa: ARG002 — copilot is stateless
+        session_id: str | None = None,
         timeout: int = 300,
         max_retries: int = 2,
         logger: Logger | None = None,
@@ -48,6 +50,10 @@ class GitHubCopilotRunner:
         for attempt in range(1, max_retries + 1):
             try:
                 cmd = ["copilot", "--prompt", prompt]
+                cmd.extend(["--share", str(_SHARE_FILE)])
+
+                if session_id:
+                    cmd.extend(["--resume", session_id])
 
                 if self._model:
                     cmd.extend(["--model", self._model])
@@ -62,7 +68,8 @@ class GitHubCopilotRunner:
                     timeout=timeout,
                 )
                 if result.returncode == 0:
-                    return RunResult(output=result.stdout, session_id=None)
+                    parsed_id = _parse_session_id(_SHARE_FILE)
+                    return RunResult(output=result.stdout, session_id=parsed_id)
                 if logger:
                     logger.warn(f"copilot exited with code {result.returncode} (attempt {attempt})")
                 if result.stderr and logger:
@@ -82,6 +89,14 @@ class GitHubCopilotRunner:
                 time.sleep(backoff)
 
         raise RuntimeError(f"copilot failed after {max_retries} attempts")
+
+
+def _parse_session_id(share_file: Path) -> str | None:
+    """Extract session ID from a copilot --share markdown file."""
+    if not share_file.is_file():
+        return None
+    m = re.search(r"\*\*Session ID:\*\*\s*`([a-f0-9-]+)`", share_file.read_text())
+    return m.group(1) if m else None
 
 
 def apply_text_output(output: str, logger: Logger | None = None) -> None:

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from agent_native_workflow.domain import agent_config_for
 from agent_native_workflow.runners.base import RunResult
-from agent_native_workflow.runners.copilot import GitHubCopilotRunner
+from agent_native_workflow.runners.copilot import GitHubCopilotRunner, _parse_session_id
 
 # ── GitHubCopilotRunner properties ───────────────────────────────────────────
 
@@ -84,17 +85,90 @@ def test_copilot_filters_out_non_shell_tools() -> None:
         assert tool not in cmd
 
 
-def test_copilot_returns_none_session_id() -> None:
+def test_copilot_returns_none_session_id_when_share_file_missing(tmp_path) -> None:
+    fake_result = MagicMock()
+    fake_result.returncode = 0
+    fake_result.stdout = "output"
+
+    missing = tmp_path / "no-such-file.md"
+    with patch("agent_native_workflow.runners.copilot.subprocess.run", return_value=fake_result):
+        with patch("agent_native_workflow.runners.copilot._SHARE_FILE", missing):
+            runner = GitHubCopilotRunner()
+            result = runner.run("prompt", timeout=10, max_retries=1)
+
+    assert isinstance(result, RunResult)
+    assert result.session_id is None
+
+
+def test_copilot_returns_parsed_session_id(tmp_path) -> None:
+    share_file = tmp_path / "copilot-session.md"
+    share_file.write_text(
+        "# 🤖 Copilot CLI Session\n\n"
+        "> [!NOTE]\n"
+        "> - **Session ID:** `90579805-92ca-444a-b34c-603fab1111ff`  \n"
+        "> - **Started:** 2026-03-24, 11:15:09 p.m.  \n"
+    )
+
     fake_result = MagicMock()
     fake_result.returncode = 0
     fake_result.stdout = "output"
 
     with patch("agent_native_workflow.runners.copilot.subprocess.run", return_value=fake_result):
-        runner = GitHubCopilotRunner()
-        result = runner.run("prompt", timeout=10, max_retries=1)
+        with patch("agent_native_workflow.runners.copilot._SHARE_FILE", share_file):
+            runner = GitHubCopilotRunner()
+            result = runner.run("prompt", timeout=10, max_retries=1)
 
-    assert isinstance(result, RunResult)
-    assert result.session_id is None
+    assert result.session_id == "90579805-92ca-444a-b34c-603fab1111ff"
+
+
+def test_copilot_adds_share_flag() -> None:
+    runner = GitHubCopilotRunner()
+    cmd = _run_and_capture(runner)
+    assert "--share" in cmd
+
+
+def test_copilot_adds_resume_flag_when_session_id_given() -> None:
+    fake_result = MagicMock()
+    fake_result.returncode = 0
+    fake_result.stdout = "output"
+    captured: list[list[str]] = []
+
+    def fake_run(cmd, **_kwargs):
+        captured.append(cmd)
+        return fake_result
+
+    sid = "abc-123"
+    with patch("agent_native_workflow.runners.copilot.subprocess.run", side_effect=fake_run):
+        GitHubCopilotRunner().run("prompt", session_id=sid, timeout=10, max_retries=1)
+
+    cmd = captured[0]
+    assert "--resume" in cmd
+    assert sid in cmd
+
+
+def test_copilot_omits_resume_flag_when_no_session_id() -> None:
+    runner = GitHubCopilotRunner()
+    cmd = _run_and_capture(runner)
+    assert "--resume" not in cmd
+
+
+# ── _parse_session_id ─────────────────────────────────────────────────────────
+
+
+def test_parse_session_id_returns_id(tmp_path: Path) -> None:
+    f = tmp_path / "session.md"
+    f.write_text("- **Session ID:** `deadbeef-1234-5678-abcd-000000000000`\n")
+    assert _parse_session_id(f) == "deadbeef-1234-5678-abcd-000000000000"
+
+
+def test_parse_session_id_returns_none_when_missing(tmp_path: Path) -> None:
+    assert _parse_session_id(tmp_path / "no-file.md") is None
+
+
+def test_parse_session_id_returns_none_when_no_match(tmp_path: Path) -> None:
+    f = tmp_path / "session.md"
+    f.write_text("# no session info here\n")
+    assert _parse_session_id(f) is None
 
 
 def test_copilot_ignores_permission_mode() -> None:
