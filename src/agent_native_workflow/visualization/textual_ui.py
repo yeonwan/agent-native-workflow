@@ -35,6 +35,7 @@ class PipelineHeader(Static):
 
     iteration: reactive[int] = reactive(0)
     max_iterations: reactive[int] = reactive(1)
+    final_status: reactive[str] = reactive("")
 
     def __init__(self, provider: str, verification: str, **kwargs: object) -> None:
         super().__init__(**kwargs)
@@ -49,12 +50,15 @@ class PipelineHeader(Static):
         elapsed = int(time.time() - self._start_time)
         m, s = divmod(elapsed, 60)
         elapsed_str = f"{m}m {s}s" if m else f"{s}s"
-        return (
+        base = (
             f"provider: [bold cyan]{self._provider}[/]   "
             f"verification: [bold]{self._verification}[/]   "
             f"iteration: [bold yellow]{self.iteration}/{self.max_iterations}[/]   "
             f"elapsed: [bold]{elapsed_str}[/]"
         )
+        if self.final_status:
+            return f"{base}   {self.final_status}"
+        return base
 
     def update_iteration(self, iteration: int, max_iterations: int) -> None:
         self.iteration = iteration
@@ -225,12 +229,20 @@ class PipelineApp(App[None]):
                 f"{metrics.total_iterations} iteration(s), "
                 f"{metrics.total_duration_s:.1f}s"
             )
+            self.query_one("#pipeline-header", PipelineHeader).final_status = (
+                f"[bold green]✓ CONVERGED[/]"
+            )
+            self.notify("Pipeline converged successfully!", severity="information")
         else:
             msg = (
                 f"[bold yellow]⚠ MAX ITERATIONS[/] — "
                 f"{metrics.total_iterations} iteration(s), "
                 f"{metrics.total_duration_s:.1f}s"
             )
+            self.query_one("#pipeline-header", PipelineHeader).final_status = (
+                f"[bold yellow]⚠ MAX ITERATIONS[/]"
+            )
+            self.notify("Max iterations reached without convergence.", severity="warning")
         self.query_one("#log-panel", RichLog).write(msg)
 
     # ── private helpers ───────────────────────────────────────────────────────
@@ -299,9 +311,6 @@ class TextualVisualizer:
                 result[0] = pipeline_fn()
             except Exception as exc:
                 self._queue.put(("log", f"[bold red]ERROR:[/] {exc}"))
-            finally:
-                time.sleep(1.0)
-                self._queue.put(("exit", None))
 
         worker = threading.Thread(target=_worker, daemon=True)
         worker.start()
