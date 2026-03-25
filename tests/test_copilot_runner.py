@@ -13,14 +13,14 @@ from agent_native_workflow.runners.copilot import GitHubCopilotRunner
 # ── GitHubCopilotRunner properties ───────────────────────────────────────────
 
 
-def test_copilot_runner_is_stateless() -> None:
+def test_copilot_runner_supports_resume() -> None:
     runner = GitHubCopilotRunner()
-    assert runner.supports_resume is False
+    assert runner.supports_resume is True
 
 
-def test_copilot_runner_does_not_support_file_tools() -> None:
+def test_copilot_runner_supports_file_tools() -> None:
     runner = GitHubCopilotRunner()
-    assert runner.supports_file_tools is False
+    assert runner.supports_file_tools is True
 
 
 # ── Command format ────────────────────────────────────────────────────────────
@@ -118,16 +118,29 @@ def test_copilot_raises_when_binary_missing() -> None:
 # ── domain.py copilot tool definitions ───────────────────────────────────────
 
 
-def test_agent_config_for_copilot_uses_shell_tools() -> None:
+def test_agent_config_for_copilot_agent_a_has_file_and_shell_tools() -> None:
     cfg = agent_config_for("python", cli_provider="copilot")
-    for tool in cfg.agent_a.allowed_tools:
-        assert tool.startswith("shell("), f"Expected shell(...) format, got: {tool}"
+    tools = cfg.agent_a.allowed_tools
+    # File operation tools
+    assert "read" in tools
+    assert "write" in tools
+    assert "edit" in tools
+    assert "grep" in tools
+    assert "glob" in tools
+    # Shell tools
+    assert any(t.startswith("shell(") for t in tools)
+    # No Claude-specific capitalized tools
+    assert "Read" not in tools
+    assert "Edit" not in tools
+    assert "Write" not in tools
 
 
-def test_agent_config_for_copilot_agent_r_uses_shell_tools() -> None:
+def test_agent_config_for_copilot_agent_r_has_read_and_shell_tools() -> None:
     cfg = agent_config_for("python", cli_provider="copilot")
-    for tool in cfg.agent_r.allowed_tools:
-        assert tool.startswith("shell("), f"Expected shell(...) format, got: {tool}"
+    tools = cfg.agent_r.allowed_tools
+    assert "read" in tools
+    assert "grep" in tools
+    assert any(t.startswith("shell(git:") for t in tools)
 
 
 def test_agent_config_for_copilot_has_no_permission_mode() -> None:

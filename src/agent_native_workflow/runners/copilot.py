@@ -22,8 +22,8 @@ class GitHubCopilotRunner:
     """
 
     provider_name = "copilot"
-    supports_file_tools = False
-    supports_resume = False
+    supports_file_tools = True
+    supports_resume = True
 
     def __init__(
         self,
@@ -34,8 +34,7 @@ class GitHubCopilotRunner:
         **_kwargs: object,
     ) -> None:
         self._model = model
-        # Only pass tools in shell(...) format; others are copilot built-ins.
-        self._allowed_tools = [t for t in (allowed_tools or []) if t.startswith("shell(")]
+        self._allowed_tools = list(allowed_tools or [])
 
     def run(
         self,

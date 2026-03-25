@@ -70,6 +70,11 @@ _AGENT_A_BUILD_TOOLS: dict[str, list[str]] = {
 # natively by copilot so only shell (subprocess) tools need explicit permission.
 
 _COPILOT_AGENT_A_BASE = [
+    "read",
+    "write",
+    "edit",
+    "grep",
+    "glob",
     "shell(git:status)",
     "shell(git:diff)",
     "shell(git:log)",
@@ -82,9 +87,9 @@ _COPILOT_AGENT_A_BUILD_TOOLS: dict[str, list[str]] = {
     "java-maven": ["shell(mvn:*)", "shell(make:*)"],
     "java-gradle": ["shell(./gradlew:*)", "shell(gradle:*)", "shell(make:*)"],
 }
-_COPILOT_AGENT_R_TOOLS = ["shell(git:diff)", "shell(git:log)"]
-_COPILOT_AGENT_B_TOOLS = ["shell(git:diff)", "shell(git:log)"]
-_COPILOT_AGENT_C_TOOLS: list[str] = []
+_COPILOT_AGENT_R_TOOLS = ["read", "grep", "glob", "shell(git:diff)", "shell(git:log)"]
+_COPILOT_AGENT_B_TOOLS = ["read", "grep", "glob", "shell(git:diff)", "shell(git:log)"]
+_COPILOT_AGENT_C_TOOLS: list[str] = ["read"]
 
 # Default models per CLI provider for each agent role.
 # Empty string = let the provider choose its default.
