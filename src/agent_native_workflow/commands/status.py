@@ -17,12 +17,13 @@ def cmd_status(args: argparse.Namespace) -> int:
         if not runs:
             print("No runs found.")
             return 0
-        print(f"{'Run ID':<30} {'Started At':<25} {'Converged':<12} {'Iterations'}")
-        print("-" * 80)
+        print(f"{'Run ID':<30} {'Started At':<25} {'Converged':<12} {'Tag':<16} {'Iterations'}")
+        print("-" * 100)
         for r in runs:
+            tag_val = r.get('tag', '') or ''
             print(
                 f"{r['run_id']:<30} {str(r['started_at']):<25} "
-                f"{r['converged']:<12} {r['total_iterations']}"
+                f"{r['converged']:<12} {tag_val:<16} {r['total_iterations']}"
             )
         return 0
 
@@ -43,6 +44,9 @@ def cmd_status(args: argparse.Namespace) -> int:
     verification_mode = str(summary.get("verification_mode") or "unknown")
 
     print(f"Run ID    : {summary['run_id']}")
+    tag_val = manifest.get('tag') if isinstance(manifest, dict) else None
+    if tag_val:
+        print(f"Tag       : {tag_val}")
     print(f"Started   : {manifest.get('started_at', 'unknown')}")
     print(f"Verification: {verification_mode}")
 

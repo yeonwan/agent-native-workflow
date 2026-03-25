@@ -120,6 +120,7 @@ def run_pipeline(
     c_runner: AgentRunner | None = None,
     visualizer: Visualizer | None = None,
     workflow_config: WorkflowConfig | None = None,
+    tag: str | None = None,
 ) -> bool:
     """Run the AI-native workflow pipeline (A → quality gates → verification).
 
@@ -203,7 +204,7 @@ def run_pipeline(
         "model_b": agent_cfg.agent_b.model or wcfg.model_verify or wcfg.model,
         "model_c": agent_cfg.agent_c.model or wcfg.model_verify or wcfg.model,
     }
-    run_dir = store.start_run(config_snapshot=config_snapshot)
+    run_dir = store.start_run(config_snapshot=config_snapshot, tag=tag)
     store.set_agent_session_resume(runner.supports_resume)
 
     # If requirements file is non-text (.docx, .pdf), convert to .md snapshot

@@ -37,6 +37,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+import sys
 
 from agent_native_workflow.context import (
     IterationContext,
@@ -111,8 +112,12 @@ class RunStore:
                 out[k] = None if v is None else str(v)
         return out
 
-    def start_run(self, config_snapshot: dict[str, object] | None = None) -> Path:
-        """Create a timestamped run directory and write the manifest."""
+    def start_run(self, config_snapshot: dict[str, object] | None = None, tag: str | None = None) -> Path:
+        """Create a timestamped run directory and write the manifest.
+
+        If a tag is provided, include it in the manifest as a top-level "tag" field.
+        Tags longer than 60 characters are truncated with a warning to stderr.
+        """
         run_id = time.strftime("run-%Y%m%d-%H%M%S")
         self._run_dir = self._base / "runs" / run_id
         self._run_dir.mkdir(parents=True, exist_ok=True)
@@ -122,6 +127,22 @@ class RunStore:
             "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
             "config": config_snapshot or {},
         }
+
+        if tag is not None:
+            # Treat empty-string tags as absent
+            if isinstance(tag, str) and tag.strip() == "":
+                pass
+            else:
+                if isinstance(tag, str) and len(tag) > 60:
+                    truncated = tag[:60]
+                    print(
+                        "WARNING: Run tag longer than 60 characters; truncated to 60 chars",
+                        file=sys.stderr,
+                    )
+                    manifest["tag"] = truncated
+                else:
+                    manifest["tag"] = tag
+
         (self._run_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, ensure_ascii=False)
         )
@@ -413,11 +434,13 @@ class RunStore:
                 continue
 
             started_at = ""
+            tag = ""
             manifest_path = run_dir / "manifest.json"
             if manifest_path.is_file():
                 try:
                     manifest = json.loads(manifest_path.read_text())
                     started_at = str(manifest.get("started_at", ""))
+                    tag = str(manifest.get("tag", "") or "")
                 except Exception:
                     pass
 
@@ -440,6 +463,7 @@ class RunStore:
                     "run_id": run_dir.name,
                     "started_at": started_at,
                     "converged": converged,
+                    "tag": tag,
                     "total_iterations": total_iterations,
                 }
             )

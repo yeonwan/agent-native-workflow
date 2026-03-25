@@ -130,6 +130,12 @@ def build_parser() -> ArgumentParser:
         default=False,
         help="Print the Agent A prompt (header/footer) and exit; no agents or pipeline",
     )
+    run_p.add_argument(
+        "--tag",
+        default=None,
+        metavar="LABEL",
+        help="Optional short label for this run (max 60 chars). Appears in 'anw status --list' and 'anw status'.",
+    )
 
     # verify
     verify_p = sub.add_parser(

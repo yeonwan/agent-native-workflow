@@ -90,6 +90,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             visualizer=visualizer,
             workflow_config=wcfg,
             parallel_gates=args.parallel_gates if hasattr(args, "parallel_gates") else None,
+            tag=args.tag if hasattr(args, "tag") else None,
         )
 
     # TextualVisualizer must run the Textual app on the main thread; the pipeline
