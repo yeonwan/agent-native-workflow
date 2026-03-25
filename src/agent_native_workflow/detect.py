@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -361,11 +362,19 @@ def detect_changed_files(
     return all_files
 
 
-def snapshot_working_tree(project_root: Path | None = None) -> set[str]:
-    """Capture the current set of modified/staged/untracked file paths.
+def _file_hash(path: Path) -> str:
+    try:
+        return hashlib.md5(path.read_bytes(), usedforsecurity=False).hexdigest()
+    except OSError:
+        return ""
 
-    Returns a set of path strings as reported by 'git status --porcelain'.
-    Used to compute exactly which files an agent changed during its run.
+
+def snapshot_working_tree(project_root: Path | None = None) -> dict[str, str]:
+    """Capture modified/staged/untracked files with their content hashes.
+
+    Returns {porcelain_line: content_hash} so that files already in a modified
+    state (from a prior iteration) are still detected as changed if their
+    content differs from the snapshot taken before Agent A ran.
     """
     root = project_root or Path.cwd()
     try:
@@ -376,25 +385,30 @@ def snapshot_working_tree(project_root: Path | None = None) -> set[str]:
             cwd=root,
             timeout=10,
         )
-        return set(result.stdout.strip().splitlines())
+        snapshot: dict[str, str] = {}
+        for line in result.stdout.strip().splitlines():
+            path_str = line[3:].split(" -> ")[-1].strip()
+            snapshot[line] = _file_hash(root / path_str)
+        return snapshot
     except (subprocess.SubprocessError, FileNotFoundError):
-        return set()
+        return {}
 
 
-def files_changed_since(before: set[str], project_root: Path | None = None) -> list[str]:
+def files_changed_since(before: dict[str, str], project_root: Path | None = None) -> list[str]:
     """Return files that changed between a snapshot and now.
 
-    Compares 'git status --porcelain' output against the before-snapshot.
-    New or modified entries in the current status that weren't in before
-    are the files the agent touched.
+    Detects both new entries in git status AND files whose content hash
+    changed even though the git status code stayed the same (e.g. a file
+    already modified in a prior iteration that the agent edited again).
     """
     after = snapshot_working_tree(project_root)
-    new_entries = after - before
     paths: list[str] = []
-    for entry in sorted(new_entries):
-        # porcelain format: "XY path" or "XY old -> new"
-        parts = entry[3:].split(" -> ")
-        paths.append(parts[-1].strip())
+    for entry, hash_after in sorted(after.items()):
+        hash_before = before.get(entry)
+        if hash_before is None or hash_before != hash_after:
+            # porcelain format: "XY path" or "XY old -> new"
+            parts = entry[3:].split(" -> ")
+            paths.append(parts[-1].strip())
     return paths
 
 
