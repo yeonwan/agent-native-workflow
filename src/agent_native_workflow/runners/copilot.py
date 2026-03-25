@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 import subprocess
 import time
-import uuid
 from pathlib import Path
 
 from agent_native_workflow.log import Logger
@@ -24,33 +23,38 @@ class GitHubCopilotRunner:
 
     provider_name = "copilot"
     supports_file_tools = False
-    supports_resume = True
+    supports_resume = False
 
     def __init__(
         self,
         *,
-        allowed_tools: list[str] | None = None,  # ignored, copilot-native
+        model: str = "",
+        allowed_tools: list[str] | None = None,
         permission_mode: str | None = None,  # ignored, copilot-native
         **_kwargs: object,
     ) -> None:
-        pass
+        self._model = model
+        # Only pass tools in shell(...) format; others are copilot built-ins.
+        self._allowed_tools = [t for t in (allowed_tools or []) if t.startswith("shell(")]
 
     def run(
         self,
         prompt: str,
         *,
-        session_id: str | None = None,
+        session_id: str | None = None,  # noqa: ARG002 — copilot is stateless
         timeout: int = 300,
         max_retries: int = 2,
         logger: Logger | None = None,
     ) -> RunResult:
-        active_sid: str | None = session_id
-
         for attempt in range(1, max_retries + 1):
             try:
-                if active_sid is None:
-                    active_sid = str(uuid.uuid4())
-                cmd = ["copilot", f"--resume={active_sid}", prompt]
+                cmd = ["copilot", "--prompt", prompt]
+
+                if self._model:
+                    cmd.extend(["--model", self._model])
+
+                for tool in self._allowed_tools:
+                    cmd.append(f"--allow-tool={tool}")
 
                 result = subprocess.run(
                     cmd,
@@ -59,7 +63,7 @@ class GitHubCopilotRunner:
                     timeout=timeout,
                 )
                 if result.returncode == 0:
-                    return RunResult(output=result.stdout, session_id=active_sid)
+                    return RunResult(output=result.stdout, session_id=None)
                 if logger:
                     logger.warn(f"copilot exited with code {result.returncode} (attempt {attempt})")
                 if result.stderr and logger:

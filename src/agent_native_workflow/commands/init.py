@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 from agent_native_workflow.commands.init_templates import (
@@ -11,6 +12,18 @@ from agent_native_workflow.commands.init_templates import (
 )
 
 
+def _update_cli_provider(config_path: Path, new_provider: str) -> None:
+    """Patch cli-provider line in an existing config.yaml, preserving all other settings."""
+    text = config_path.read_text()
+    patched = re.sub(
+        r"^(cli-provider:\s*).*$",
+        rf"\g<1>{new_provider}",
+        text,
+        flags=re.MULTILINE,
+    )
+    config_path.write_text(patched)
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     from agent_native_workflow.detect import detect_all
     from agent_native_workflow.domain import agent_config_for
@@ -18,11 +31,15 @@ def cmd_init(args: argparse.Namespace) -> int:
     config_dir = Path(".agent-native-workflow")
     config_dir.mkdir(exist_ok=True)
 
+    cli_provider = getattr(args, "cli", None) or "claude"
+    cli_explicitly_set = getattr(args, "cli", None) is not None
+
     prompt_file = config_dir / "PROMPT.yaml"
     requirements_file = config_dir / "requirements.md"
     agent_config_file = config_dir / "agent-config.yaml"
     workflow_config_file = config_dir / "config.yaml"
 
+    # Content files — never overwrite; user customises these.
     if not prompt_file.exists():
         prompt_file.write_text(PROMPT_YAML)
         print(f"Created {prompt_file}")
@@ -38,10 +55,13 @@ def cmd_init(args: argparse.Namespace) -> int:
     detected = detect_all()
     project_type = detected.project_type
 
+    # Provider config files — regenerate/update when --cli is explicitly given.
     if not agent_config_file.exists():
-        cli_provider = getattr(args, "cli", None) or "claude"
         agent_config_for(project_type, cli_provider=cli_provider).save(agent_config_file)
         print(f"Created {agent_config_file} (project type: {project_type})")
+    elif cli_explicitly_set:
+        agent_config_for(project_type, cli_provider=cli_provider).save(agent_config_file)
+        print(f"Updated {agent_config_file} (provider: {cli_provider})")
     else:
         print(f"Skipped {agent_config_file} (already exists)")
 
@@ -52,8 +72,13 @@ def cmd_init(args: argparse.Namespace) -> int:
         test_hint = (
             f"test-cmd: {detected.test_cmd}" if detected.test_cmd else "# test-cmd: make test"
         )
-        workflow_config_file.write_text(config_yaml(project_type, lint_hint, test_hint))
+        workflow_config_file.write_text(
+            config_yaml(project_type, lint_hint, test_hint, cli_provider)
+        )
         print(f"Created {workflow_config_file}")
+    elif cli_explicitly_set:
+        _update_cli_provider(workflow_config_file, cli_provider)
+        print(f"Updated {workflow_config_file} (cli-provider → {cli_provider})")
     else:
         print(f"Skipped {workflow_config_file} (already exists)")
 

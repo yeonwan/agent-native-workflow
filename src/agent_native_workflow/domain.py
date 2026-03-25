@@ -29,14 +29,15 @@ class AgentPermissions:
     model: str = ""
 
     def to_dict(self) -> dict[str, object]:
-        d: dict[str, object] = {
-            "allowed_tools": self.allowed_tools,
-            "permission_mode": self.permission_mode,
-        }
+        d: dict[str, object] = {"allowed_tools": self.allowed_tools}
+        if self.permission_mode:
+            d["permission_mode"] = self.permission_mode
         if self.model:
             d["model"] = self.model
         return d
 
+
+# ── Claude Code tool definitions ──────────────────────────────────────────────
 
 # Base tools every Agent A needs regardless of project type
 _AGENT_A_BASE = [
@@ -63,6 +64,27 @@ _AGENT_A_BUILD_TOOLS: dict[str, list[str]] = {
     "java-maven": ["Bash(mvn:*)", "Bash(make:*)"],
     "java-gradle": ["Bash(./gradlew:*)", "Bash(gradle:*)", "Bash(make:*)"],
 }
+
+# ── GitHub Copilot CLI tool definitions ───────────────────────────────────────
+# Copilot uses --allow-tool="shell(cmd:*)" format. File read/write are handled
+# natively by copilot so only shell (subprocess) tools need explicit permission.
+
+_COPILOT_AGENT_A_BASE = [
+    "shell(git:status)",
+    "shell(git:diff)",
+    "shell(git:log)",
+]
+_COPILOT_AGENT_A_BUILD_TOOLS: dict[str, list[str]] = {
+    "python": ["shell(uv:*)", "shell(pytest:*)", "shell(ruff:*)", "shell(make:*)"],
+    "node": ["shell(npm:*)", "shell(npx:*)", "shell(yarn:*)", "shell(make:*)"],
+    "rust": ["shell(cargo:*)", "shell(make:*)"],
+    "go": ["shell(go:*)", "shell(make:*)"],
+    "java-maven": ["shell(mvn:*)", "shell(make:*)"],
+    "java-gradle": ["shell(./gradlew:*)", "shell(gradle:*)", "shell(make:*)"],
+}
+_COPILOT_AGENT_R_TOOLS = ["shell(git:diff)", "shell(git:log)"]
+_COPILOT_AGENT_B_TOOLS = ["shell(git:diff)", "shell(git:log)"]
+_COPILOT_AGENT_C_TOOLS: list[str] = []
 
 # Default models per CLI provider for each agent role.
 # Empty string = let the provider choose its default.
@@ -101,10 +123,36 @@ def agent_config_for(project_type: str, cli_provider: str = "claude") -> AgentCo
     Agent R gets read-only tools for ``verification: review``.
     Agent B/C get triangulation roles (blind review + PM judge).
     """
+    models = _DEFAULT_MODELS.get(cli_provider, _DEFAULT_MODELS["claude"])
+
+    if cli_provider == "copilot":
+        build_tools = _COPILOT_AGENT_A_BUILD_TOOLS.get(project_type, ["shell(make:*)"])
+        agent_a_tools = _COPILOT_AGENT_A_BASE + build_tools
+        return AgentConfig(
+            agent_a=AgentPermissions(
+                allowed_tools=agent_a_tools,
+                permission_mode="",
+                model=models["agent_a"],
+            ),
+            agent_r=AgentPermissions(
+                allowed_tools=_COPILOT_AGENT_R_TOOLS,
+                permission_mode="",
+                model=models["agent_r"],
+            ),
+            agent_b=AgentPermissions(
+                allowed_tools=_COPILOT_AGENT_B_TOOLS,
+                permission_mode="",
+                model=models["agent_b"],
+            ),
+            agent_c=AgentPermissions(
+                allowed_tools=_COPILOT_AGENT_C_TOOLS,
+                permission_mode="",
+                model=models["agent_c"],
+            ),
+        )
+
     build_tools = _AGENT_A_BUILD_TOOLS.get(project_type, ["Bash(make:*)"])
     agent_a_tools = _AGENT_A_BASE + build_tools
-
-    models = _DEFAULT_MODELS.get(cli_provider, _DEFAULT_MODELS["claude"])
 
     return AgentConfig(
         agent_a=AgentPermissions(

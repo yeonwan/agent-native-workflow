@@ -107,7 +107,9 @@ CODEREVIEW_MD = """\
 """
 
 
-def config_yaml(project_type: str, lint_hint: str, test_hint: str) -> str:
+def config_yaml(
+    project_type: str, lint_hint: str, test_hint: str, cli_provider: str = "claude"
+) -> str:
     return f"""\
 # agent-native-workflow configuration
 # Edit this file to customize the workflow for this project.
@@ -115,7 +117,7 @@ def config_yaml(project_type: str, lint_hint: str, test_hint: str) -> str:
 
 # CLI provider for all agents (A, R, B, C).
 # Options: claude, copilot, codex, cursor
-cli-provider: claude
+cli-provider: {cli_provider}
 
 # Verification strategy after quality gates pass.
 # Options: none, review, triangulation

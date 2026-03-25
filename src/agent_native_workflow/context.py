@@ -140,5 +140,6 @@ Start by reading the files that need to change. Then make targeted fixes with Ed
 
 {latest}
 
-When all fixes are applied (Edit/Write called at least once), output `LOOP_COMPLETE` on its own line.
+When all fixes are applied (Edit/Write called at least once), output on its own line:
+`LOOP_COMPLETE`
 """
