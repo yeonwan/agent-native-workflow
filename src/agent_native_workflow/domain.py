@@ -98,16 +98,16 @@ _COPILOT_AGENT_C_TOOLS: list[str] = ["read"]
 # Empty string = let the provider choose its default.
 _DEFAULT_MODELS: dict[str, dict[str, str]] = {
     "claude": {
-        "agent_a": "claude-opus-4-6",  # implementer: most capable
+        "agent_a": "claude-sonnet-4-6",  # implementer
         "agent_r": "claude-sonnet-4-6",  # review mode: balanced
         "agent_b": "claude-sonnet-4-6",  # triangulation B
         "agent_c": "claude-haiku-4-5-20251001",  # triangulation C
     },
     "copilot": {
-        "agent_a": "gpt-5-mini",
-        "agent_r": "gpt-5-mini",
-        "agent_b": "gpt-5-mini",
-        "agent_c": "gpt-5-mini",
+        "agent_a": "gpt-4.1",
+        "agent_r": "gpt-4.1",
+        "agent_b": "gpt-4.1",
+        "agent_c": "gpt-4.1",
     },
     "codex": {
         "agent_a": "o4-mini",
