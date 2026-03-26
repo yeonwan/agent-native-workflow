@@ -65,7 +65,7 @@ _AGENT_A_BUILD_TOOLS: dict[str, list[str]] = {
     "rust": ["Bash(cargo:*)", "Bash(make:*)"],
     "go": ["Bash(go:*)", "Bash(make:*)"],
     "java-maven": ["Bash(mvn:*)", "Bash(make:*)"],
-    "java-gradle": ["Bash(./gradlew:*)", "Bash(gradle:*)", "Bash(make:*)"],
+    "java-gradle": ["Bash(./gradlew compileJava)", "Bash(./gradlew test --tests*)"],
 }
 
 # ── GitHub Copilot CLI tool definitions ───────────────────────────────────────
@@ -88,7 +88,7 @@ _COPILOT_AGENT_A_BUILD_TOOLS: dict[str, list[str]] = {
     "rust": ["shell(cargo:*)", "shell(make:*)"],
     "go": ["shell(go:*)", "shell(make:*)"],
     "java-maven": ["shell(mvn:*)", "shell(make:*)"],
-    "java-gradle": ["shell(./gradlew:*)", "shell(gradle:*)", "shell(make:*)"],
+    "java-gradle": ["shell(./gradlew compileJava)", "shell(./gradlew test --tests*)"],
 }
 _COPILOT_AGENT_R_TOOLS = ["read", "grep", "glob", "shell(git:diff)", "shell(git:log)"]
 _COPILOT_AGENT_B_TOOLS = ["read", "grep", "glob", "shell(git:diff)", "shell(git:log)"]
