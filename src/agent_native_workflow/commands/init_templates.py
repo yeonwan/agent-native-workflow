@@ -17,7 +17,8 @@ title: "Implement requirements"
 
 build: |
   Read requirements.md and implement everything listed there.
-  Read existing code first before making any changes.
+  You don't need to run test locally, the pipeline will run tests for you.
+  If you really need to run tests locally, only run what you have implemented.
 
 # Add more context when the requirements file alone isn't enough for Agent A:
 #
