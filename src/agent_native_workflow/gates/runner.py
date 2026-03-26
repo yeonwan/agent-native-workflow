@@ -35,17 +35,41 @@ def _failure_feedback(name: str, cmd: str, raw_output: str) -> str:
     return f"{name} FAILED:\n{body}"
 
 
-def run_gate_command(cmd: str, timeout: int = 300) -> tuple[bool, str]:
+def run_gate_command(
+    cmd: str,
+    timeout: int = 300,
+    on_output: Callable[[str], None] | None = None,
+) -> tuple[bool, str]:
     if not _is_safe_command(cmd):
-        return False, f"BLOCKED: command contains unsafe patterns: {cmd}"
+        msg = f"BLOCKED: command contains unsafe patterns: {cmd}"
+        if on_output:
+            on_output(msg)
+        return False, msg
     try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
-        output = result.stdout + result.stderr
-        return result.returncode == 0, output
+        proc = subprocess.Popen(
+            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        )
+        lines: list[str] = []
+        assert proc.stdout is not None  # guaranteed by PIPE
+        for line in proc.stdout:
+            lines.append(line)
+            if on_output:
+                on_output(line.rstrip("\n\r"))
+        proc.wait(timeout=timeout)
+        output = "".join(lines)
+        return proc.returncode == 0, output
     except subprocess.TimeoutExpired:
-        return False, f"Command timed out after {timeout}s: {cmd}"
+        proc.kill()
+        proc.wait()
+        msg = f"Command timed out after {timeout}s: {cmd}"
+        if on_output:
+            on_output(msg)
+        return False, msg
     except Exception as e:
-        return False, f"Command failed: {e}"
+        msg = f"Command failed: {e}"
+        if on_output:
+            on_output(msg)
+        return False, msg
 
 
 def _emit(on_output: Callable[[str], None] | None, text: str) -> None:
@@ -73,8 +97,7 @@ def run_gates_sequential(
             break
         logger.info(f"[Phase 2] Running {name}: {cmd}")
         on_output and on_output(f"─── gate: {name} ───")
-        passed, output = run_gate_command(cmd, timeout)
-        _emit(on_output, output)
+        passed, output = run_gate_command(cmd, timeout, on_output=on_output)
         status = GateStatus.PASS if passed else GateStatus.FAIL
         results.append(GateResult(name=name, status=status, output=_for_storage(output)))
         if passed:
