@@ -29,6 +29,10 @@ class GradleDigester:
     _BUILD_RESULT = re.compile(r"^BUILD (FAILED|SUCCESSFUL)")
     # Caused-by / exception first line (indented stacktrace header)
     _EXCEPTION = re.compile(r"^\s+(org\.\w|java\.\w|com\.\w|Caused by:)")
+    # Compiler error: "/path/to/File.java:42: error: ..."
+    _COMPILER_ERROR = re.compile(r"^/.+\.java:\d+: (error|warning):")
+    # Compiler error continuation: indented lines, caret, symbol/location
+    _COMPILER_DETAIL = re.compile(r"^\s+(\^|symbol:|location:)|^\s{2,}\S")
     # Noise: compiler warnings, STANDARD_ERROR markers, logback, blank
     _NOISE = re.compile(
         r"warning: \[|STANDARD_ERROR|STANDARD_OUT"
@@ -63,6 +67,18 @@ class GradleDigester:
                 if self._EXCEPTION.match(line):
                     current_block.append(line)
                     continue
+                # Compiler error lines belong to the block (skip warnings)
+                if self._COMPILER_ERROR.match(line):
+                    if ": error:" in line:
+                        current_block.append(line)
+                        continue
+                    # warning inside failure block → end block, fall through
+                    failure_blocks.append("\n".join(current_block))
+                    current_block = []
+                    in_failure = False
+                elif self._COMPILER_DETAIL.match(line):
+                    current_block.append(line)
+                    continue
                 # Blank line or non-indented line ends the block
                 if not line.strip() or (not line.startswith(" ") and not line.startswith("\t")):
                     failure_blocks.append("\n".join(current_block))
@@ -76,6 +92,15 @@ class GradleDigester:
             # Summary / build-result lines
             if self._SUMMARY.search(line) or self._BUILD_RESULT.match(line):
                 summary_lines.append(line.strip())
+                continue
+
+            # Standalone compiler errors (not inside a failure block yet)
+            # Only start a block for actual errors, not warnings
+            if self._COMPILER_ERROR.match(line) and ": error:" in line:
+                if current_block:
+                    failure_blocks.append("\n".join(current_block))
+                current_block = [line]
+                in_failure = True
                 continue
 
             # Maven failure header
