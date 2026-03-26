@@ -117,6 +117,9 @@ _OUTCOME_SYMBOLS: dict[str, str] = {
 }
 
 
+_QUIT_COUNTDOWN = 5  # seconds to wait before force-quitting
+
+
 class PipelineApp(App[None]):
     """Textual dashboard for the agent-native-workflow pipeline."""
 
@@ -128,6 +131,7 @@ class PipelineApp(App[None]):
         config: WorkflowConfig,
         event_queue: queue.Queue[tuple[str, object]] | None = None,
         ready_event: threading.Event | None = None,
+        pipeline_done: threading.Event | None = None,
     ) -> None:
         super().__init__()
         self._config = config
@@ -139,6 +143,8 @@ class PipelineApp(App[None]):
         self._iter_start_time: float = time.time()
         self._event_queue = event_queue
         self._ready_event = ready_event
+        self._pipeline_done = pipeline_done
+        self._quit_countdown: int = 0  # 0 = not in countdown
 
     def on_mount(self) -> None:
         """Start draining the event queue and signal readiness."""
@@ -146,6 +152,35 @@ class PipelineApp(App[None]):
             self.set_interval(0.05, self._drain_queue)
         if self._ready_event:
             self._ready_event.set()
+
+    def action_quit(self) -> None:
+        """Quit immediately if pipeline is done; otherwise start a countdown."""
+        pipeline_done = self._pipeline_done is None or self._pipeline_done.is_set()
+        if pipeline_done:
+            self.exit()
+            return
+        if self._quit_countdown > 0:
+            # Second q press during countdown → force quit immediately.
+            self.exit()
+            return
+        # First q press while pipeline is running → start countdown.
+        self._quit_countdown = _QUIT_COUNTDOWN
+        self._update_quit_header()
+        self.set_interval(1.0, self._countdown_tick, name="quit-countdown")
+
+    def _countdown_tick(self) -> None:
+        self._quit_countdown -= 1
+        if self._quit_countdown <= 0:
+            self.exit()
+        else:
+            self._update_quit_header()
+
+    def _update_quit_header(self) -> None:
+        header = self.query_one("#pipeline-header", PipelineHeader)
+        header.final_status = (
+            f"[bold yellow]⚠ Pipeline running — press q again to force quit "
+            f"({self._quit_countdown}s)[/]"
+        )
 
     def _drain_queue(self) -> None:
         """Process all pending events from the pipeline worker thread."""
@@ -302,7 +337,13 @@ class TextualVisualizer:
         Returns the bool result of ``pipeline_fn()``.
         """
         ready = threading.Event()
-        self._app = PipelineApp(config, event_queue=self._queue, ready_event=ready)
+        pipeline_done = threading.Event()
+        self._app = PipelineApp(
+            config,
+            event_queue=self._queue,
+            ready_event=ready,
+            pipeline_done=pipeline_done,
+        )
         result: list[bool] = [False]
 
         def _worker() -> None:
@@ -311,11 +352,13 @@ class TextualVisualizer:
                 result[0] = pipeline_fn()
             except Exception as exc:
                 self._queue.put(("log", f"[bold red]ERROR:[/] {exc}"))
+            finally:
+                pipeline_done.set()
 
         worker = threading.Thread(target=_worker, daemon=True)
         worker.start()
         self._app.run()
-        worker.join(timeout=10)
+        worker.join(timeout=0)  # daemon thread; no need to block after TUI exits
         return result[0]
 
     def on_pipeline_start(self, config: WorkflowConfig) -> None:
