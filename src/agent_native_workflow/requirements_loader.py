@@ -4,7 +4,7 @@ Supported formats:
   .md / .txt / .text  — plain text, read directly
   .docx               — Word document (requires: pip install python-docx)
   .pdf                — PDF (requires: pip install pypdf)
-  .doc                — legacy Word (not supported; convert to .docx first)
+  .doc                — legacy Word (requires: pip install mammoth)
 
 Usage:
     from agent_native_workflow.requirements_loader import load_requirements
@@ -38,10 +38,7 @@ def load_requirements(path: Path) -> str:
         return _read_pdf(path)
 
     if suffix == ".doc":
-        raise ValueError(
-            f"Legacy .doc format is not supported: {path}\n"
-            "Please convert to .docx (File → Save As in Word) or export as PDF."
-        )
+        return _read_doc(path)
 
     # Unknown extension — attempt plain text read
     try:
@@ -49,7 +46,7 @@ def load_requirements(path: Path) -> str:
     except UnicodeDecodeError:
         raise ValueError(
             f"Cannot read requirements file '{path}' as text.\n"
-            f"Supported formats: .md, .txt, .docx, .pdf"
+            f"Supported formats: .md, .txt, .docx, .pdf, .doc"
         ) from None
 
 
@@ -90,6 +87,21 @@ def _read_docx(path: Path) -> str:
             sections.append(text)
 
     return "\n\n".join(sections)
+
+
+def _read_doc(path: Path) -> str:
+    try:
+        import mammoth  # type: ignore[import-untyped]
+    except ImportError as exc:
+        raise ImportError(
+            "Reading .doc requires mammoth. Install it with:\n"
+            "  pip install mammoth\n"
+            "  # or: uv add mammoth"
+        ) from exc
+
+    with open(path, "rb") as f:
+        result = mammoth.convert_to_markdown(f)
+    return result.value
 
 
 def _read_pdf(path: Path) -> str:
