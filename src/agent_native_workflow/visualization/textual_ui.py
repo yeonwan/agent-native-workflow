@@ -20,6 +20,8 @@ from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Footer, Header, RichLog, Static
 
+from rich.markup import escape as _escape_markup
+
 from agent_native_workflow.visualization.base import PipelinePhase
 
 if TYPE_CHECKING:
@@ -251,7 +253,7 @@ class PipelineApp(App[None]):
             self._iter_phase_states[node_id] = status
 
     def append_agent_stream(self, line: str) -> None:
-        self.query_one("#agent-stream", RichLog).write(line)
+        self.query_one("#agent-stream", RichLog).write(_escape_markup(line))
 
     def append_log(self, message: str) -> None:
         self.query_one("#log-panel", RichLog).write(message)
