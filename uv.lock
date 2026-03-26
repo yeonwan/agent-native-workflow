@@ -7,25 +7,12 @@ name = "agent-native-workflow"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "mammoth" },
+    { name = "pypdf" },
+    { name = "python-docx" },
     { name = "pyyaml" },
     { name = "rich" },
     { name = "textual" },
-]
-
-[package.optional-dependencies]
-all-formats = [
-    { name = "mammoth" },
-    { name = "pypdf" },
-    { name = "python-docx" },
-]
-doc = [
-    { name = "mammoth" },
-]
-docx = [
-    { name = "python-docx" },
-]
-pdf = [
-    { name = "pypdf" },
 ]
 
 [package.dev-dependencies]
@@ -36,17 +23,13 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mammoth", marker = "extra == 'all-formats'", specifier = ">=1.6" },
-    { name = "mammoth", marker = "extra == 'doc'", specifier = ">=1.6" },
-    { name = "pypdf", marker = "extra == 'all-formats'", specifier = ">=3.0" },
-    { name = "pypdf", marker = "extra == 'pdf'", specifier = ">=3.0" },
-    { name = "python-docx", marker = "extra == 'all-formats'", specifier = ">=1.0" },
-    { name = "python-docx", marker = "extra == 'docx'", specifier = ">=1.0" },
+    { name = "mammoth", specifier = ">=1.6" },
+    { name = "pypdf", specifier = ">=3.0" },
+    { name = "python-docx", specifier = ">=1.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", specifier = ">=13.0" },
     { name = "textual", specifier = ">=3.0" },
 ]
-provides-extras = ["docx", "pdf", "doc", "all-formats"]
 
 [package.metadata.requires-dev]
 dev = [
