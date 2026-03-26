@@ -180,7 +180,7 @@ def detect_lint_cmd(
     elif ptype == "java-gradle":
         gradlew = root / "gradlew"
         cmd = "./gradlew" if gradlew.is_file() else "gradle"
-        return f"{cmd} checkstyleMain --quiet"
+        return f"{cmd} spotlessApply"
 
     _debug("detect_lint_cmd → (none)")
     return ""
@@ -224,7 +224,7 @@ def detect_test_cmd(project_type: str | None = None, project_root: Path | None =
     elif ptype == "java-gradle":
         gradlew = root / "gradlew"
         cmd = "./gradlew" if gradlew.is_file() else "gradle"
-        return f"{cmd} test --quiet"
+        return f"{cmd} test"
 
     _debug("detect_test_cmd → (none)")
     return ""
