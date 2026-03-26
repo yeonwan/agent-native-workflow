@@ -38,8 +38,6 @@ build: |
 # Completion checklist — checked by quality gates; align with config verification mode.
 criteria:
   - All requirements in requirements.md implemented
-  - Lint passes
-  - All existing tests pass
 # Add test criteria only if the requirements explicitly ask for tests:
 # - New tests cover the happy path and at least one error case
 """
