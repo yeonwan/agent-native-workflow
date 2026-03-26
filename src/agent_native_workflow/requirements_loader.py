@@ -4,7 +4,7 @@ Supported formats:
   .md / .txt / .text  — plain text, read directly
   .docx               — Word document (requires: pip install python-docx)
   .pdf                — PDF (requires: pip install pypdf)
-  .doc                — legacy Word (requires: pip install mammoth)
+  .doc                — legacy Word (Open XML .doc only; binary .doc requires prior conversion to .docx)
 
 Usage:
     from agent_native_workflow.requirements_loader import load_requirements
@@ -84,10 +84,17 @@ def _read_docx(path: Path) -> str:
 
 def _read_doc(path: Path) -> str:
     import mammoth  # type: ignore[import-untyped]
+    import zipfile
 
-    with open(path, "rb") as f:
-        result = mammoth.convert_to_markdown(f)
-    return result.value
+    try:
+        with open(path, "rb") as f:
+            result = mammoth.convert_to_markdown(f)
+        return result.value
+    except zipfile.BadZipFile:
+        raise ValueError(
+            f"Cannot read '{path}': legacy binary .doc format is not supported.\n"
+            f"Please convert to .docx or .pdf first (e.g. open in Word/LibreOffice → Save As)."
+        ) from None
 
 
 def _read_pdf(path: Path) -> str:
