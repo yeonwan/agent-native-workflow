@@ -27,6 +27,7 @@ class AgentPermissions:
     allowed_tools: list[str] = field(default_factory=list)
     permission_mode: str = "bypassPermissions"
     model: str = ""
+    timeout: int | None = None  # seconds; None = use global WorkflowConfig.timeout
 
     def to_dict(self) -> dict[str, object]:
         d: dict[str, object] = {"allowed_tools": self.allowed_tools}
@@ -34,6 +35,8 @@ class AgentPermissions:
             d["permission_mode"] = self.permission_mode
         # Always include model so users can see and edit it, even when empty.
         d["model"] = self.model
+        if self.timeout is not None:
+            d["timeout"] = self.timeout
         return d
 
 
@@ -220,10 +223,35 @@ class AgentConfig:
         }
 
     def save(self, path: Path) -> None:
-        import yaml  # type: ignore[import-untyped]
-
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.dump(self.to_dict(), allow_unicode=True, sort_keys=False))
+        path.write_text(self._to_yaml(), encoding="utf-8")
+
+    def _to_yaml(self) -> str:
+        """Render agent-config.yaml with inline comments for discoverability."""
+
+        def _agent_block(name: str, perms: AgentPermissions, timeout_hint: str) -> str:
+            tools_lines = "\n".join(f"  - {t}" for t in perms.allowed_tools)
+            model_line = f"  model: {perms.model}" if perms.model else "  # model: "
+            timeout_line = (
+                f"  timeout: {perms.timeout}"
+                if perms.timeout is not None
+                else f"  # timeout: {timeout_hint}  # seconds; overrides global timeout"
+            )
+            return (
+                f"{name}:\n"
+                f"  allowed_tools:\n"
+                f"{tools_lines}\n"
+                f"{model_line}\n"
+                f"{timeout_line}"
+            )
+
+        blocks = [
+            _agent_block("agent_a", self.agent_a, "300"),
+            _agent_block("agent_r", self.agent_r, "180"),
+            _agent_block("agent_b", self.agent_b, "180"),
+            _agent_block("agent_c", self.agent_c, "120"),
+        ]
+        return "\n".join(blocks) + "\n"
 
 
 class IterationOutcome(enum.Enum):

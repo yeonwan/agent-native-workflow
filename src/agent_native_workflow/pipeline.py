@@ -239,6 +239,10 @@ def run_pipeline(
         else os.environ.get("PARALLEL_GATES", "").lower() in ("true", "1", "yes")
     )
 
+    # Per-agent timeouts: agent-config.yaml value takes precedence over global agent_timeout.
+    timeout_a = agent_cfg.agent_a.timeout or agent_timeout
+    timeout_r = agent_cfg.agent_r.timeout or agent_timeout
+
     os.environ.pop("CLAUDECODE", None)
 
     shutdown_requested = False
@@ -303,7 +307,7 @@ def run_pipeline(
                 requirements_file=agents_requirements_file,
                 store=store,
                 runner=runner,
-                timeout=agent_timeout,
+                timeout=timeout_a,
                 max_retries=max_retries,
                 logger=logger,
                 session_id=agent_a_session,
@@ -452,7 +456,7 @@ def run_pipeline(
                 store=store,
                 iteration=iteration,
                 config=cfg,
-                timeout=agent_timeout,
+                timeout=timeout_r,
                 max_retries=max_retries,
                 logger=logger,
                 verification_session_id=agent_r_session,

@@ -130,14 +130,18 @@ class WorkflowConfig:
                         allowed_tools=list(fallback.allowed_tools),
                         permission_mode=fallback.permission_mode,
                         model=fallback.model,
+                        timeout=fallback.timeout,
                     )
                 tools = raw.get("allowed_tools")
                 if tools is None:
                     tools = fallback.allowed_tools
+                raw_timeout = raw.get("timeout")
+                timeout = int(raw_timeout) if raw_timeout is not None else fallback.timeout
                 return AgentPermissions(
                     allowed_tools=list(tools),  # type: ignore[arg-type]
                     permission_mode=str(raw.get("permission_mode", fallback.permission_mode)),
                     model=str(raw.get("model", fallback.model)),
+                    timeout=timeout,
                 )
 
             return AgentConfig(
