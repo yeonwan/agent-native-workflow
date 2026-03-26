@@ -21,6 +21,7 @@ _KEY_MAP: dict[str, str] = {
     "lint-cmd": "lint_cmd",
     "test-cmd": "test_cmd",
     "verification": "verification",
+    "advisory-iterations": "advisory_iterations",
 }
 
 _ENV_MAP: dict[str, str] = {
@@ -38,9 +39,10 @@ _ENV_MAP: dict[str, str] = {
     "LINT_CMD": "lint_cmd",
     "TEST_CMD": "test_cmd",
     "VERIFICATION": "verification",
+    "ADVISORY_ITERATIONS": "advisory_iterations",
 }
 
-_INT_FIELDS = {"max_iterations", "timeout", "max_retries"}
+_INT_FIELDS = {"max_iterations", "timeout", "max_retries", "advisory_iterations"}
 _PATH_FIELDS = {"prompt_file", "requirements_file"}
 _BOOL_FIELDS = {"security_agent_enabled"}
 
@@ -106,6 +108,9 @@ class WorkflowConfig:
 
     # Post-gate verification: none | review | triangulation
     verification: str = "review"
+
+    # Advisory convergence: 0 = ignore advisory (default), N = retry up to N times for advisory
+    advisory_iterations: int = 0
 
     agent_config: AgentConfig | None = field(default=None, repr=False)
 

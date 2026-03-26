@@ -270,6 +270,8 @@ def run_pipeline(
     logger.info(cfg.print_config())
     logger.info(f"Max iterations: {max_iterations}")
     logger.info(f"Verification: {wcfg.verification}")
+    if wcfg.advisory_iterations > 0:
+        logger.info(f"Advisory iterations: {wcfg.advisory_iterations}")
     logger.info(f"Prompt: {prompt_file}")
     logger.info(f"Requirements: {requirements_file}")
     logger.info(f"Run dir: {run_dir}")
@@ -281,6 +283,7 @@ def run_pipeline(
     agent_a_session: str | None = None
     agent_r_session: str | None = None
     consecutive_no_change = 0
+    advisory_count = 0
 
     try:
         for iteration in range(1, max_iterations + 1):
@@ -466,7 +469,36 @@ def run_pipeline(
                 agent_r_session = verif_result.next_agent_r_session_id
             store.write_session_state({"agent_a": agent_a_session, "agent_r": agent_r_session})
 
-            if verif_result.passed:
+            if verif_result.passed and verif_result.advisory_only and wcfg.advisory_iterations > 0:
+                advisory_count += 1
+                if advisory_count >= wcfg.advisory_iterations:
+                    logger.info(
+                        f"[Phase 3] Advisory iteration limit reached ({advisory_count}/{wcfg.advisory_iterations}) "
+                        "— accepting with remaining advisory items"
+                    )
+                    iter_metrics.verification_status = GateStatus.PASS
+                    logger.phase_end("phase3_triangular_verify", "pass", iteration=iteration)
+                    visualizer.on_phase_end(PipelinePhase.TRIANGULAR_VERIFY, "pass")
+                else:
+                    logger.info(
+                        f"[Phase 3] Advisory feedback ({advisory_count}/{wcfg.advisory_iterations}) "
+                        "— sending advisory to Agent A"
+                    )
+                    feedback_content = verif_result.feedback or "Advisory improvements requested."
+                    store.write_feedback(
+                        iteration,
+                        feedback_content,
+                        outcome=IterationOutcome.VERIFY_FAIL,
+                        gate_results=gate_results,
+                    )
+                    iter_metrics.verification_status = GateStatus.FAIL
+                    iter_metrics.outcome = IterationOutcome.VERIFY_FAIL
+                    iter_metrics.duration_s = round(time.time() - iter_start, 2)
+                    metrics.iterations.append(iter_metrics)
+                    logger.phase_end("phase3_triangular_verify", "advisory", iteration=iteration)
+                    visualizer.on_phase_end(PipelinePhase.TRIANGULAR_VERIFY, "fail")
+                    continue
+            elif verif_result.passed:
                 iter_metrics.verification_status = GateStatus.PASS
                 logger.phase_end("phase3_triangular_verify", "pass", iteration=iteration)
                 visualizer.on_phase_end(PipelinePhase.TRIANGULAR_VERIFY, "pass")

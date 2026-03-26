@@ -8,7 +8,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from agent_native_workflow.detect import ProjectConfig
-from agent_native_workflow.domain import CONSENSUS_AGREE_MARKER, TRIANGULAR_PASS_MARKER
+from agent_native_workflow.domain import (
+    CONSENSUS_AGREE_MARKER,
+    REVIEW_APPROVE_WITH_ADVISORY_MARKER,
+    TRIANGULAR_PASS_MARKER,
+)
 from agent_native_workflow.log import Logger
 from agent_native_workflow.runners.base import RunResult
 from agent_native_workflow.store import RunStore
@@ -430,6 +434,92 @@ def test_review_two_tier_verdict_format(tmp_path: Path) -> None:
     )
     assert "Blocking Issues" in runner.last_prompt
     assert "Suggestions (Advisory)" in runner.last_prompt
+
+
+class _AdvisoryRunner:
+    """Returns REVIEW_APPROVE_WITH_ADVISORY marker."""
+
+    provider_name = "fake"
+    supports_file_tools = True
+    supports_resume = False
+
+    def run(
+        self,
+        prompt: str,
+        *,
+        session_id: str | None = None,
+        timeout: int = 300,
+        max_retries: int = 2,
+        logger=None,
+        on_output=None,
+    ) -> RunResult:
+        return RunResult(
+            output=f"All requirements met.\n{REVIEW_APPROVE_WITH_ADVISORY_MARKER}\n- Consider renaming foo to bar\n",
+            session_id=None,
+        )
+
+
+def test_review_strategy_advisory_returns_passed_with_advisory_flag(tmp_path: Path) -> None:
+    store = RunStore(base_dir=tmp_path)
+    store.start_run({})
+    reqs = tmp_path / "requirements.md"
+    reqs.write_text("# R\n")
+    cfg = ProjectConfig(changed_files=["x.py"])
+    strategy = ReviewStrategy(_AdvisoryRunner())
+    result = strategy.run(
+        requirements_file=reqs,
+        store=store,
+        iteration=1,
+        config=cfg,
+        timeout=30,
+        max_retries=1,
+        logger=Logger(),
+    )
+    assert result.passed is True
+    assert result.advisory_only is True
+    assert "Consider renaming" in result.feedback
+
+
+def test_review_strategy_clean_approve_has_no_advisory_flag(tmp_path: Path) -> None:
+    store = RunStore(base_dir=tmp_path)
+    store.start_run({})
+    reqs = tmp_path / "requirements.md"
+    reqs.write_text("# R\n")
+    cfg = ProjectConfig(changed_files=["src/foo.py"])
+    strategy = ReviewStrategy(_ApproveRunner())
+    result = strategy.run(
+        requirements_file=reqs,
+        store=store,
+        iteration=1,
+        config=cfg,
+        timeout=30,
+        max_retries=1,
+        logger=Logger(),
+    )
+    assert result.passed is True
+    assert result.advisory_only is False
+    assert result.feedback == ""
+
+
+def test_review_prompt_includes_advisory_marker(tmp_path: Path) -> None:
+    store = RunStore(base_dir=tmp_path)
+    store.start_run({})
+    reqs = tmp_path / "requirements.md"
+    reqs.write_text("# R\n")
+    cfg = ProjectConfig(changed_files=["x.py"])
+    runner = _CaptureRunner()
+    strategy = ReviewStrategy(runner)
+    strategy.run(
+        requirements_file=reqs,
+        store=store,
+        iteration=1,
+        config=cfg,
+        timeout=30,
+        max_retries=1,
+        logger=Logger(),
+    )
+    assert "REVIEW_APPROVE_WITH_ADVISORY" in runner.last_prompt
+    assert "REVIEW_APPROVE" in runner.last_prompt
 
 
 def test_run_triangular_verification_delegates_to_strategy(tmp_path: Path) -> None:

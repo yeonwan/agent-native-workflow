@@ -265,6 +265,7 @@ class IterationOutcome(enum.Enum):
 TRIANGULAR_PASS_MARKER = "TRIANGULAR_PASS"
 CONSENSUS_AGREE_MARKER = "CONSENSUS_AGREE"
 REVIEW_APPROVE_MARKER = "REVIEW_APPROVE"
+REVIEW_APPROVE_WITH_ADVISORY_MARKER = "REVIEW_APPROVE_WITH_ADVISORY"
 SECURITY_AGENT_PASS_MARKER = "SECURITY_AGENT_PASS"
 
 
@@ -280,6 +281,7 @@ class VerificationResult:
     """
 
     passed: bool
+    advisory_only: bool = False
     feedback: str = ""
     next_agent_r_session_id: str | None = None
 

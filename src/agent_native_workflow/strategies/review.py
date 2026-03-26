@@ -4,7 +4,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agent_native_workflow.detect import ProjectConfig
-from agent_native_workflow.domain import REVIEW_APPROVE_MARKER, VerificationResult
+from agent_native_workflow.domain import (
+    REVIEW_APPROVE_MARKER,
+    REVIEW_APPROVE_WITH_ADVISORY_MARKER,
+    VerificationResult,
+)
 from agent_native_workflow.log import Logger
 from agent_native_workflow.runners.base import AgentRunner
 from agent_native_workflow.store import RunStore
@@ -91,11 +95,15 @@ Code quality improvements, convention violations, naming, patterns.
 These do NOT block approval but are recommended.
 
 ## Verdict
-If ALL requirements are MET and there are no blocking issues, output on its own line:
+If ALL requirements are MET and there are no blocking issues AND no advisory suggestions:
 {REVIEW_APPROVE_MARKER}
 
-Otherwise, list exactly what Agent A must fix (blocking issues only).
-Advisory suggestions should NOT prevent approval."""
+If ALL requirements are MET and there are no blocking issues BUT advisory suggestions exist:
+{REVIEW_APPROVE_WITH_ADVISORY_MARKER}
+Then list all advisory suggestions below the marker.
+
+Otherwise (blocking issues exist), list exactly what Agent A must fix (blocking issues only).
+Do NOT output any approval marker when blocking issues exist."""
 
         logger.info("Phase R: Requirements-based code review")
         run_out = self._runner.run(
@@ -111,6 +119,15 @@ Advisory suggestions should NOT prevent approval."""
         logger.info(f"Review saved → {review_path}")
 
         next_sid = run_out.session_id if self._runner.supports_resume else None
+
+        if REVIEW_APPROVE_WITH_ADVISORY_MARKER in output:
+            logger.info("RESULT: PASS with advisory (review)")
+            return VerificationResult(
+                passed=True,
+                advisory_only=True,
+                feedback=output,
+                next_agent_r_session_id=next_sid,
+            )
 
         if REVIEW_APPROVE_MARKER in output:
             logger.info("RESULT: PASS (review)")

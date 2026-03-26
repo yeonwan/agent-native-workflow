@@ -126,6 +126,10 @@ cli-provider: {cli_provider}
 #   triangulation  — B→C→B multi-agent consensus (thorough, slower)
 verification: review
 
+# Advisory convergence: when > 0, Agent R's advisory suggestions are sent back
+# to Agent A up to N times before accepting. 0 = ignore advisory (default).
+# advisory-iterations: 0
+
 # Quality gate commands (auto-detected from project type: {project_type}).
 # Edit or remove to override.
 {lint_hint}
