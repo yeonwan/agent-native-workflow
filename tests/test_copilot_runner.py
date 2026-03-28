@@ -86,10 +86,10 @@ def test_copilot_omits_model_flag_when_empty() -> None:
 
 
 def test_copilot_adds_allow_tool_for_shell_tools() -> None:
-    runner = GitHubCopilotRunner(allowed_tools=["shell(pytest:*)", "shell(git:status)"])
+    runner = GitHubCopilotRunner(allowed_tools=["shell(pytest:*)", "shell(git status)"])
     cmd = _run_and_capture(runner)
     assert "--allow-tool=shell(pytest:*)" in cmd
-    assert "--allow-tool=shell(git:status)" in cmd
+    assert "--allow-tool=shell(git status)" in cmd
 
 
 def test_copilot_filters_out_non_shell_tools() -> None:
@@ -216,7 +216,7 @@ def test_agent_config_for_copilot_agent_r_has_read_and_shell_tools() -> None:
     tools = cfg.agent_r.allowed_tools
     assert "read" in tools
     assert "grep" in tools
-    assert any(t.startswith("shell(git:") for t in tools)
+    assert any(t.startswith("shell(git ") for t in tools)
 
 
 def test_agent_config_for_copilot_has_no_permission_mode() -> None:

@@ -78,9 +78,9 @@ _COPILOT_AGENT_A_BASE = [
     "edit",
     "grep",
     "glob",
-    "shell(git:status)",
-    "shell(git:diff)",
-    "shell(git:log)",
+    "shell(git status)",
+    "shell(git diff)",
+    "shell(git log)",
 ]
 _COPILOT_AGENT_A_BUILD_TOOLS: dict[str, list[str]] = {
     "python": ["shell(uv:*)", "shell(pytest:*)", "shell(ruff:*)", "shell(make:*)"],
@@ -90,8 +90,8 @@ _COPILOT_AGENT_A_BUILD_TOOLS: dict[str, list[str]] = {
     "java-maven": ["shell(mvn:*)", "shell(make:*)"],
     "java-gradle": ["shell(./gradlew compileJava)", "shell(./gradlew test --tests*)"],
 }
-_COPILOT_AGENT_R_TOOLS = ["read", "grep", "glob", "shell(git:diff)", "shell(git:log)"]
-_COPILOT_AGENT_B_TOOLS = ["read", "grep", "glob", "shell(git:diff)", "shell(git:log)"]
+_COPILOT_AGENT_R_TOOLS = ["read", "grep", "glob", "shell(git diff)", "shell(git log)"]
+_COPILOT_AGENT_B_TOOLS = ["read", "grep", "glob", "shell(git diff)", "shell(git log)"]
 _COPILOT_AGENT_C_TOOLS: list[str] = ["read"]
 
 # Default models per CLI provider for each agent role.
