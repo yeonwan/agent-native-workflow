@@ -18,18 +18,18 @@ pip install agent-native-workflow
 uv add agent-native-workflow
 ```
 
-Entry points: `agn` and `agent-native-workflow` (same CLI).
+Entry points: `anw` and `agent-native-workflow` (same CLI).
 
 ## Quick start
 
 ```bash
 cd your-repo
-agn init                    # .agent-native-workflow/ templates + config
+anw init                    # .agent-native-workflow/ templates + config
 # Edit .agent-native-workflow/PROMPT.yaml and requirements.md
-agn run --cli claude        # or copilot, codex, cursor
+anw run --cli claude        # or copilot, codex, cursor
 ```
 
-Use `agn run --help` for flags (`--requirements`, `--verification`, `--dry-run`, etc.).
+Use `anw run --help` for flags (`--requirements`, `--verification`, `--dry-run`, etc.).
 
 ## Verification modes
 
@@ -41,7 +41,7 @@ After **lint** and **test** pass, one of:
 | **`review`** (default in code) | **Agent R** reads requirements + changed files; emits `REVIEW_APPROVE` or feedback. | Good default for most features. |
 | **`triangulation`** | **Agent B → C → B**: blind-style dev review, PM-style requirements check, then dev sign-off (`CONSENSUS_AGREE`). | Higher assurance; slower and more API calls. |
 
-Configure in `.agent-native-workflow/config.yaml` as `verification: none | review | triangulation`, or override with `agn run --verification …` / `agn verify --verification …`.
+Configure in `.agent-native-workflow/config.yaml` as `verification: none | review | triangulation`, or override with `anw run --verification …` / `anw verify --verification …`.
 
 Agent tooling and models live in `.agent-native-workflow/agent-config.yaml` (`agent_a`, **`agent_r`** for review mode, `agent_b` / `agent_c` for triangulation).
 
@@ -60,12 +60,12 @@ Environment variables (see `WorkflowConfig` in code): e.g. `CLI_PROVIDER`, `VERI
 
 | Command | Purpose |
 |---------|---------|
-| `agn run` | Full pipeline with optional Rich UI. |
-| `agn verify` | Run only the verification phase (uses same config / `--verification`). |
-| `agn status` | Summarize latest or `--run <id>` run; `--list` all runs. |
-| `agn detect` | Print auto-detected lint/test commands and project type. |
-| `agn providers` | Which CLI backends are installed. |
-| `agn init` | Scaffold `.agent-native-workflow/` files. |
+| `anw run` | Full pipeline with optional Rich UI. |
+| `anw verify` | Run only the verification phase (uses same config / `--verification`). |
+| `anw status` | Summarize latest or `--run <id>` run; `--list` all runs. |
+| `anw detect` | Print auto-detected lint/test commands and project type. |
+| `anw providers` | Which CLI backends are installed. |
+| `anw init` | Scaffold `.agent-native-workflow/` files. |
 
 ## Artifacts
 
