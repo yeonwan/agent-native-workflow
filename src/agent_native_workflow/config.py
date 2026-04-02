@@ -22,6 +22,7 @@ _KEY_MAP: dict[str, str] = {
     "test-cmd": "test_cmd",
     "verification": "verification",
     "advisory-iterations": "advisory_iterations",
+    "notify": "notify",
 }
 
 _ENV_MAP: dict[str, str] = {
@@ -40,11 +41,12 @@ _ENV_MAP: dict[str, str] = {
     "TEST_CMD": "test_cmd",
     "VERIFICATION": "verification",
     "ADVISORY_ITERATIONS": "advisory_iterations",
+    "ANW_NOTIFY": "notify",
 }
 
 _INT_FIELDS = {"max_iterations", "timeout", "max_retries", "advisory_iterations"}
 _PATH_FIELDS = {"prompt_file", "requirements_file"}
-_BOOL_FIELDS = {"security_agent_enabled"}
+_BOOL_FIELDS = {"security_agent_enabled", "notify"}
 
 
 def _coerce(key: str, value: object) -> object:
@@ -111,6 +113,9 @@ class WorkflowConfig:
 
     # Advisory convergence: 0 = ignore advisory (default), N = retry up to N times for advisory
     advisory_iterations: int = 0
+
+    # Desktop notifications
+    notify: bool = True
 
     agent_config: AgentConfig | None = field(default=None, repr=False)
 

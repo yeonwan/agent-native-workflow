@@ -14,6 +14,7 @@ from agent_native_workflow.detect import (
     files_changed_since,
     snapshot_working_tree,
 )
+from agent_native_workflow.notify import send_notification
 from agent_native_workflow.domain import (
     GateStatus,
     IterationMetrics,
@@ -286,6 +287,7 @@ def run_pipeline(
     agent_r_session: str | None = None
     consecutive_no_change = 0
     advisory_count = 0
+    pipeline_exception: Exception | None = None
 
     try:
         for iteration in range(1, max_iterations + 1):
@@ -540,6 +542,10 @@ def run_pipeline(
             converged = True
             break
 
+    except Exception as e:
+        # Capture exception to send error notification in finally block
+        pipeline_exception = e
+        raise
     finally:
         if _signals_installed:
             signal.signal(signal.SIGINT, original_sigint)
@@ -553,6 +559,35 @@ def run_pipeline(
         store.write_metrics(metrics)
 
         visualizer.on_pipeline_end(metrics)
+
+        # Send desktop notification if enabled
+        if wcfg.notify:
+            try:
+                if pipeline_exception:
+                    # Error occurred during pipeline execution
+                    error_msg = str(pipeline_exception)[:200]
+                    send_notification(
+                        title="anw: error",
+                        body=f"Pipeline error: {error_msg}",
+                    )
+                elif converged:
+                    send_notification(
+                        title="anw: converged",
+                        body=f"Pipeline converged in {metrics.total_iterations} iteration(s), {total_time}s total",
+                    )
+                elif shutdown_requested:
+                    send_notification(
+                        title="anw: interrupted",
+                        body=f"Pipeline interrupted after {metrics.total_iterations} iteration(s), {total_time}s",
+                    )
+                else:
+                    send_notification(
+                        title="anw: did not converge",
+                        body=f"Max iterations ({metrics.total_iterations}) reached, {total_time}s total",
+                    )
+            except Exception:
+                # Notification failure should never block cleanup
+                pass
 
     if not converged:
         logger.info("")
