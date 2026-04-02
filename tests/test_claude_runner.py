@@ -108,6 +108,11 @@ def test_claude_uses_verbose_flag() -> None:
     assert "--verbose" in cmd
 
 
+def test_claude_uses_include_partial_messages_flag() -> None:
+    cmd = _run_and_capture(ClaudeCodeRunner())
+    assert "--include-partial-messages" in cmd
+
+
 def test_claude_uses_p_flag_for_prompt() -> None:
     cmd = _run_and_capture(ClaudeCodeRunner(), "implement the feature")
     assert "-p" in cmd

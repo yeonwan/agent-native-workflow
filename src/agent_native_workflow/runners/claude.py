@@ -132,6 +132,7 @@ class ClaudeCodeRunner:
                     "-p", prompt,
                     "--output-format", "stream-json",
                     "--verbose",
+                    "--include-partial-messages",
                 ]
 
                 if session_id is not None:

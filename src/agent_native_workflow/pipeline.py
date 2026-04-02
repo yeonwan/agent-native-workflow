@@ -228,8 +228,10 @@ def run_pipeline(
     cfg = config or detect_all(base_branch=wcfg.base_branch)
     # Apply explicit command overrides from config file / env vars
     if wcfg.lint_cmd:
+        logger.info(f"[config] lint-cmd override: {wcfg.lint_cmd}")
         cfg.lint_cmd = wcfg.lint_cmd
     if wcfg.test_cmd:
+        logger.info(f"[config] test-cmd override: {wcfg.test_cmd}")
         cfg.test_cmd = wcfg.test_cmd
     metrics = PipelineMetrics(started_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"))
 
