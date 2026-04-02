@@ -6,6 +6,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+from typing import Any
 
 from agent_native_workflow.log import Logger
 from agent_native_workflow.runners.base import RunResult
@@ -27,6 +28,7 @@ def _stream_stdout(
     """
     if proc.stdout is None:
         return
+    stream_state = {"saw_partial_text": False}
     for raw_line in proc.stdout:
         raw_line = raw_line.rstrip("\n")
         if not raw_line:
@@ -41,25 +43,40 @@ def _stream_stdout(
                 on_output(raw_line)
             continue
 
-        _dispatch_event(event, text_parts, on_output)
+        _dispatch_event(event, text_parts, on_output, stream_state)
 
 
 def _dispatch_event(
-    event: dict,
+    event: dict[str, Any],
     text_parts: list[str],
     on_output: Callable[[str], None] | None,
+    stream_state: dict[str, bool],
 ) -> None:
     """Route a single parsed JSON event."""
+    # Newer Claude CLI stream-json wraps incremental events inside:
+    # {"type": "stream_event", "event": {...}}
+    if event.get("type") == "stream_event":
+        inner = event.get("event")
+        if isinstance(inner, dict):
+            _dispatch_event(inner, text_parts, on_output, stream_state)
+        return
+
     etype = event.get("type", "")
 
     # --- assistant text delta (real-time tokens) ---
     if etype == "assistant":
         # Complete assistant message — extract text blocks for the final output
+        assistant_text: list[str] = []
         for block in event.get("message", {}).get("content", []):
             if block.get("type") == "text":
                 text = block.get("text", "")
                 if text:
-                    text_parts.append(text)
+                    assistant_text.append(text)
+        if assistant_text:
+            full_text = "".join(assistant_text)
+            text_parts.append(full_text)
+            if on_output and not stream_state["saw_partial_text"]:
+                on_output(full_text)
         return
 
     if etype == "content_block_delta":
@@ -67,6 +84,7 @@ def _dispatch_event(
         if delta.get("type") == "text_delta":
             text = delta.get("text", "")
             if text and on_output:
+                stream_state["saw_partial_text"] = True
                 on_output(text)
         return
 
@@ -84,6 +102,8 @@ def _dispatch_event(
         result = event.get("result", "")
         if result and not text_parts:
             text_parts.append(result)
+            if on_output and not stream_state["saw_partial_text"]:
+                on_output(result)
         return
 
 

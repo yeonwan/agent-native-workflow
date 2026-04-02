@@ -22,6 +22,11 @@ def _json_lines(*events: dict) -> list[str]:
     return [json.dumps(e) for e in events]
 
 
+def _stream_event(event: dict) -> dict:
+    """Wrap a Claude incremental event in the real stream-json envelope."""
+    return {"type": "stream_event", "event": event}
+
+
 def _text_delta_event(text: str) -> dict:
     return {"type": "content_block_delta", "delta": {"type": "text_delta", "text": text}}
 
@@ -237,11 +242,11 @@ def test_claude_parses_assistant_text_from_stream() -> None:
 
 
 def test_claude_streams_text_deltas_to_on_output() -> None:
-    """content_block_delta text_delta events fire on_output in real-time."""
+    """Wrapped content_block_delta text_delta events fire on_output in real-time."""
     received: list[str] = []
     lines = _json_lines(
-        _text_delta_event("hel"),
-        _text_delta_event("lo"),
+        _stream_event(_text_delta_event("hel")),
+        _stream_event(_text_delta_event("lo")),
         _assistant_event("hello"),
     )
     FakePopen = _make_popen(lines=lines)
@@ -251,11 +256,11 @@ def test_claude_streams_text_deltas_to_on_output() -> None:
 
 
 def test_claude_streams_tool_use_to_on_output() -> None:
-    """Tool use start events show the tool name via on_output."""
+    """Wrapped tool_use start events show the tool name via on_output."""
     received: list[str] = []
     lines = _json_lines(
-        _tool_use_event("Read"),
-        _tool_use_event("Edit"),
+        _stream_event(_tool_use_event("Read")),
+        _stream_event(_tool_use_event("Edit")),
         _assistant_event("done"),
     )
     FakePopen = _make_popen(lines=lines)
@@ -265,13 +270,41 @@ def test_claude_streams_tool_use_to_on_output() -> None:
     assert "→ Edit" in received
 
 
+def test_claude_falls_back_to_assistant_output_when_no_partials() -> None:
+    """Top-level assistant text is sent to on_output when no deltas were streamed."""
+    received: list[str] = []
+    lines = _json_lines(_assistant_event("hello world"))
+    FakePopen = _make_popen(lines=lines)
+    with patch("agent_native_workflow.runners.claude.subprocess.Popen", FakePopen):
+        ClaudeCodeRunner().run("p", timeout=10, max_retries=1, on_output=received.append)
+    assert received == ["hello world"]
+
+
 def test_claude_result_event_fallback() -> None:
-    """If no assistant message, result event text is used as output."""
+    """If no assistant message, result event text is used as output and UI fallback."""
+    received: list[str] = []
     lines = _json_lines(_result_event("fallback output"))
     FakePopen = _make_popen(lines=lines)
     with patch("agent_native_workflow.runners.claude.subprocess.Popen", FakePopen):
-        result = ClaudeCodeRunner().run("p", timeout=10, max_retries=1)
+        result = ClaudeCodeRunner().run("p", timeout=10, max_retries=1, on_output=received.append)
     assert result.output == "fallback output"
+    assert received == ["fallback output"]
+
+
+def test_claude_does_not_duplicate_assistant_after_streamed_partials() -> None:
+    """Assistant fallback should not fire after partial text already streamed."""
+    received: list[str] = []
+    lines = _json_lines(
+        _stream_event(_text_delta_event("hel")),
+        _stream_event(_text_delta_event("lo")),
+        _assistant_event("hello"),
+        _result_event("hello"),
+    )
+    FakePopen = _make_popen(lines=lines)
+    with patch("agent_native_workflow.runners.claude.subprocess.Popen", FakePopen):
+        result = ClaudeCodeRunner().run("p", timeout=10, max_retries=1, on_output=received.append)
+    assert result.output == "hello"
+    assert received == ["hel", "lo"]
 
 
 def test_claude_handles_non_json_lines_gracefully() -> None:
