@@ -1,10 +1,11 @@
-"""Tests for ClaudeCodeRunner command format and session behaviour.
+"""Tests for ClaudeCodeRunner command format, session behaviour, and stream-json parsing.
 
 Mirrors test_copilot_runner.py so the two runners stay in sync.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from unittest.mock import patch
 
@@ -13,7 +14,32 @@ import pytest
 from agent_native_workflow.runners.base import RunResult
 from agent_native_workflow.runners.claude import ClaudeCodeRunner
 
-# ── Popen mock helpers ────────────────────────────────────────────────────────
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _json_lines(*events: dict) -> list[str]:
+    """Encode events as JSON strings (what stream-json emits)."""
+    return [json.dumps(e) for e in events]
+
+
+def _text_delta_event(text: str) -> dict:
+    return {"type": "content_block_delta", "delta": {"type": "text_delta", "text": text}}
+
+
+def _assistant_event(text: str) -> dict:
+    return {"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}}
+
+
+def _tool_use_event(name: str) -> dict:
+    return {"type": "content_block_start", "content_block": {"type": "tool_use", "name": name}}
+
+
+def _result_event(text: str) -> dict:
+    return {"type": "result", "result": text}
+
+
+# Default stream: an assistant message with text "ok"
+_DEFAULT_STREAM = _json_lines(_assistant_event("ok"))
 
 
 class _FakeStderr:
@@ -33,7 +59,7 @@ def _make_popen(
             if captured is not None:
                 captured.append(cmd)
             self.returncode = returncode
-            self.stdout = iter(f"{line}\n" for line in (lines or ["ok"]))
+            self.stdout = iter(f"{line}\n" for line in (lines or _DEFAULT_STREAM))
             self.stderr = _FakeStderr()
 
         def wait(self, timeout: float | None = None) -> int:
@@ -52,7 +78,7 @@ def _run_and_capture(runner: ClaudeCodeRunner, prompt: str = "do something") -> 
     return captured[0]
 
 
-# ── Provider properties ───────────────────────────────────────────────────────
+# ── Provider properties ──────────────────────────────────────────────────────
 
 
 def test_claude_runner_provider_name() -> None:
@@ -67,12 +93,19 @@ def test_claude_runner_supports_resume() -> None:
     assert ClaudeCodeRunner().supports_resume is True
 
 
-# ── Command format ────────────────────────────────────────────────────────────
+# ── Command format ───────────────────────────────────────────────────────────
 
 
-def test_claude_uses_print_flag() -> None:
+def test_claude_uses_stream_json_output_format() -> None:
     cmd = _run_and_capture(ClaudeCodeRunner())
-    assert "--print" in cmd
+    assert "--output-format" in cmd
+    idx = cmd.index("--output-format")
+    assert cmd[idx + 1] == "stream-json"
+
+
+def test_claude_uses_verbose_flag() -> None:
+    cmd = _run_and_capture(ClaudeCodeRunner())
+    assert "--verbose" in cmd
 
 
 def test_claude_uses_p_flag_for_prompt() -> None:
@@ -116,7 +149,7 @@ def test_claude_omits_allowed_tools_when_empty() -> None:
     assert "--allowedTools" not in cmd
 
 
-# ── Session management ────────────────────────────────────────────────────────
+# ── Session management ───────────────────────────────────────────────────────
 
 
 def test_claude_generates_session_id_on_first_run() -> None:
@@ -167,7 +200,7 @@ def test_claude_same_session_id_reused_across_retries() -> None:
         def __init__(self, cmd: list[str], **_kw: object) -> None:
             captured.append(cmd)
             self.returncode = fail_then_pass.pop(0)
-            self.stdout = iter(["ok\n"])
+            self.stdout = iter(f"{line}\n" for line in _DEFAULT_STREAM)
             self.stderr = _FakeStderr()
 
         def wait(self, timeout: float | None = None) -> int:
@@ -186,32 +219,75 @@ def test_claude_same_session_id_reused_across_retries() -> None:
     assert sid_attempt1 == sid_attempt2
 
 
-# ── Output streaming ──────────────────────────────────────────────────────────
+# ── Output streaming (stream-json parsing) ───────────────────────────────────
 
 
-def test_claude_calls_on_output_for_each_line() -> None:
-    received: list[str] = []
-    FakePopen = _make_popen(lines=["line one", "line two", "line three"])
-    with patch("agent_native_workflow.runners.claude.subprocess.Popen", FakePopen):
-        ClaudeCodeRunner().run("p", timeout=10, max_retries=1, on_output=received.append)
-    assert received == ["line one", "line two", "line three"]
-
-
-def test_claude_output_joined_with_newline() -> None:
-    FakePopen = _make_popen(lines=["alpha", "beta", "gamma"])
+def test_claude_parses_assistant_text_from_stream() -> None:
+    """Assistant message events are collected as the final output text."""
+    lines = _json_lines(_assistant_event("hello world"))
+    FakePopen = _make_popen(lines=lines)
     with patch("agent_native_workflow.runners.claude.subprocess.Popen", FakePopen):
         result = ClaudeCodeRunner().run("p", timeout=10, max_retries=1)
-    assert result.output == "alpha\nbeta\ngamma"
+    assert result.output == "hello world"
+
+
+def test_claude_streams_text_deltas_to_on_output() -> None:
+    """content_block_delta text_delta events fire on_output in real-time."""
+    received: list[str] = []
+    lines = _json_lines(
+        _text_delta_event("hel"),
+        _text_delta_event("lo"),
+        _assistant_event("hello"),
+    )
+    FakePopen = _make_popen(lines=lines)
+    with patch("agent_native_workflow.runners.claude.subprocess.Popen", FakePopen):
+        ClaudeCodeRunner().run("p", timeout=10, max_retries=1, on_output=received.append)
+    assert received == ["hel", "lo"]
+
+
+def test_claude_streams_tool_use_to_on_output() -> None:
+    """Tool use start events show the tool name via on_output."""
+    received: list[str] = []
+    lines = _json_lines(
+        _tool_use_event("Read"),
+        _tool_use_event("Edit"),
+        _assistant_event("done"),
+    )
+    FakePopen = _make_popen(lines=lines)
+    with patch("agent_native_workflow.runners.claude.subprocess.Popen", FakePopen):
+        ClaudeCodeRunner().run("p", timeout=10, max_retries=1, on_output=received.append)
+    assert "→ Read" in received
+    assert "→ Edit" in received
+
+
+def test_claude_result_event_fallback() -> None:
+    """If no assistant message, result event text is used as output."""
+    lines = _json_lines(_result_event("fallback output"))
+    FakePopen = _make_popen(lines=lines)
+    with patch("agent_native_workflow.runners.claude.subprocess.Popen", FakePopen):
+        result = ClaudeCodeRunner().run("p", timeout=10, max_retries=1)
+    assert result.output == "fallback output"
+
+
+def test_claude_handles_non_json_lines_gracefully() -> None:
+    """Non-JSON lines (e.g. CLI warnings) are forwarded as plain text."""
+    received: list[str] = []
+    lines = ["WARNING: some cli warning", json.dumps(_assistant_event("ok"))]
+    FakePopen = _make_popen(lines=lines)
+    with patch("agent_native_workflow.runners.claude.subprocess.Popen", FakePopen):
+        ClaudeCodeRunner().run("p", timeout=10, max_retries=1, on_output=received.append)
+    assert "WARNING: some cli warning" in received
 
 
 def test_claude_works_without_on_output_callback() -> None:
-    FakePopen = _make_popen(lines=["some output"])
+    lines = _json_lines(_assistant_event("some output"))
+    FakePopen = _make_popen(lines=lines)
     with patch("agent_native_workflow.runners.claude.subprocess.Popen", FakePopen):
         result = ClaudeCodeRunner().run("p", timeout=10, max_retries=1)
     assert "some output" in result.output
 
 
-# ── Error handling ────────────────────────────────────────────────────────────
+# ── Error handling ───────────────────────────────────────────────────────────
 
 
 def test_claude_raises_when_binary_missing() -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import threading
 import time
@@ -12,17 +13,78 @@ from agent_native_workflow.runners.base import RunResult
 
 def _stream_stdout(
     proc: subprocess.Popen[str],
-    output_lines: list[str],
+    text_parts: list[str],
     on_output: Callable[[str], None] | None,
 ) -> None:
-    """Read proc.stdout line by line, appending to output_lines and calling on_output."""
+    """Parse stream-json NDJSON from Claude CLI, dispatching to on_output.
+
+    Each stdout line is a JSON object.  We extract:
+    - ``text_delta`` events  → real-time text for the live panel + accumulated output
+    - ``tool_use`` starts    → show which tool the agent is invoking
+    - ``result`` event       → final text (fallback if deltas were missed)
+
+    Non-JSON lines (e.g. stderr leaking into stdout) are forwarded as-is.
+    """
     if proc.stdout is None:
         return
-    for line in proc.stdout:
-        stripped = line.rstrip("\n")
-        output_lines.append(stripped)
-        if on_output:
-            on_output(stripped)
+    for raw_line in proc.stdout:
+        raw_line = raw_line.rstrip("\n")
+        if not raw_line:
+            continue
+
+        try:
+            event = json.loads(raw_line)
+        except json.JSONDecodeError:
+            # Not JSON — forward as plain text (e.g. early CLI warnings)
+            text_parts.append(raw_line)
+            if on_output:
+                on_output(raw_line)
+            continue
+
+        _dispatch_event(event, text_parts, on_output)
+
+
+def _dispatch_event(
+    event: dict,
+    text_parts: list[str],
+    on_output: Callable[[str], None] | None,
+) -> None:
+    """Route a single parsed JSON event."""
+    etype = event.get("type", "")
+
+    # --- assistant text delta (real-time tokens) ---
+    if etype == "assistant":
+        # Complete assistant message — extract text blocks for the final output
+        for block in event.get("message", {}).get("content", []):
+            if block.get("type") == "text":
+                text = block.get("text", "")
+                if text:
+                    text_parts.append(text)
+        return
+
+    if etype == "content_block_delta":
+        delta = event.get("delta", {})
+        if delta.get("type") == "text_delta":
+            text = delta.get("text", "")
+            if text and on_output:
+                on_output(text)
+        return
+
+    # --- tool use start (show the tool name in the live panel) ---
+    if etype == "content_block_start":
+        block = event.get("content_block", {})
+        if block.get("type") == "tool_use":
+            name = block.get("name", "unknown")
+            if on_output:
+                on_output(f"→ {name}")
+        return
+
+    # --- final result (fallback for the complete output) ---
+    if etype == "result":
+        result = event.get("result", "")
+        if result and not text_parts:
+            text_parts.append(result)
+        return
 
 
 class ClaudeCodeRunner:
@@ -30,7 +92,9 @@ class ClaudeCodeRunner:
 
     Supports autonomous file editing, so supports_file_tools = True.
     Session: first call uses ``--session-id <uuid>``; later calls use ``--resume <id>``.
-    Agent output is streamed line-by-line via an optional ``on_output`` callback.
+
+    Uses ``--output-format stream-json --verbose`` so that agent output is
+    streamed in real-time via the ``on_output`` callback.
     """
 
     provider_name = "claude"
@@ -63,7 +127,12 @@ class ClaudeCodeRunner:
 
         for attempt in range(1, max_retries + 1):
             try:
-                cmd = ["claude", "--print"]
+                cmd = [
+                    "claude",
+                    "-p", prompt,
+                    "--output-format", "stream-json",
+                    "--verbose",
+                ]
 
                 if session_id is not None:
                     cmd.extend(["--resume", session_id])
@@ -81,8 +150,6 @@ class ClaudeCodeRunner:
                 if self._model:
                     cmd.extend(["--model", self._model])
 
-                cmd.extend(["-p", prompt])
-
                 proc = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
@@ -90,10 +157,10 @@ class ClaudeCodeRunner:
                     text=True,
                 )
 
-                output_lines: list[str] = []
+                text_parts: list[str] = []
                 reader = threading.Thread(
                     target=_stream_stdout,
-                    args=(proc, output_lines, on_output),
+                    args=(proc, text_parts, on_output),
                     daemon=True,
                 )
                 reader.start()
@@ -113,7 +180,7 @@ class ClaudeCodeRunner:
                     continue
 
                 reader.join(timeout=5)
-                full_output = "\n".join(output_lines)
+                full_output = "".join(text_parts)
 
                 if proc.returncode == 0:
                     sid = session_id if session_id is not None else new_session_id
