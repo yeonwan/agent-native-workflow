@@ -20,7 +20,7 @@ def build_verification_strategy(
     ``mode`` is case-insensitive. Supported values: ``none``, ``review``,
     ``triangulation``.
 
-    For ``review``, ``review_runner`` (Agent R from ``agent-config.yaml``) is used
+    For ``review``, ``review_runner`` (Agent R from ``config.yaml`` `agents:`) is used
     when provided; otherwise ``verify_runner`` is used as a fallback.
     """
     m = (mode or "review").strip().lower()

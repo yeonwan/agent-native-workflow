@@ -24,6 +24,18 @@ def _update_cli_provider(config_path: Path, new_provider: str) -> None:
     config_path.write_text(patched)
 
 
+def _upsert_agents_block(config_path: Path, agents_yaml: str) -> None:
+    """Replace or append the generated `agents:` block in config.yaml."""
+    text = config_path.read_text()
+    block = agents_yaml.rstrip() + "\n"
+    marker_re = re.compile(r"\n?# BEGIN agents\n.*?# END agents\n?", flags=re.DOTALL)
+    if marker_re.search(text):
+        updated = marker_re.sub("\n" + block, text).rstrip() + "\n"
+    else:
+        updated = text.rstrip() + "\n\n" + block
+    config_path.write_text(updated)
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     from agent_native_workflow.detect import detect_all
     from agent_native_workflow.domain import agent_config_for
@@ -36,8 +48,8 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     prompt_file = config_dir / "PROMPT.yaml"
     requirements_file = config_dir / "requirements.md"
-    agent_config_file = config_dir / "agent-config.yaml"
     workflow_config_file = config_dir / "config.yaml"
+    legacy_agent_config_file = config_dir / "agent-config.yaml"
 
     # Content files — never overwrite; user customises these.
     if not prompt_file.exists():
@@ -54,16 +66,15 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     detected = detect_all()
     project_type = detected.project_type
+    embedded_agents_yaml = agent_config_for(
+        project_type, cli_provider=cli_provider
+    ).to_embedded_yaml()
 
-    # Provider config files — regenerate/update when --cli is explicitly given.
-    if not agent_config_file.exists():
-        agent_config_for(project_type, cli_provider=cli_provider).save(agent_config_file)
-        print(f"Created {agent_config_file} (project type: {project_type})")
-    elif cli_explicitly_set:
-        agent_config_for(project_type, cli_provider=cli_provider).save(agent_config_file)
-        print(f"Updated {agent_config_file} (provider: {cli_provider})")
-    else:
-        print(f"Skipped {agent_config_file} (already exists)")
+    if legacy_agent_config_file.exists():
+        print(
+            "Detected legacy .agent-native-workflow/agent-config.yaml "
+            "(still supported; migrate settings into config.yaml > agents when convenient)"
+        )
 
     if not workflow_config_file.exists():
         lint_hint = (
@@ -73,12 +84,13 @@ def cmd_init(args: argparse.Namespace) -> int:
             f"test-cmd: {detected.test_cmd}" if detected.test_cmd else "# test-cmd: make test"
         )
         workflow_config_file.write_text(
-            config_yaml(project_type, lint_hint, test_hint, cli_provider)
+            config_yaml(project_type, lint_hint, test_hint, cli_provider, embedded_agents_yaml)
         )
         print(f"Created {workflow_config_file}")
     elif cli_explicitly_set:
         _update_cli_provider(workflow_config_file, cli_provider)
-        print(f"Updated {workflow_config_file} (cli-provider → {cli_provider})")
+        _upsert_agents_block(workflow_config_file, embedded_agents_yaml)
+        print(f"Updated {workflow_config_file} (cli-provider and agents defaults → {cli_provider})")
     else:
         print(f"Skipped {workflow_config_file} (already exists)")
 

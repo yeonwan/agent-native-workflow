@@ -154,7 +154,7 @@ def run_pipeline(
     agent_cfg = wcfg.agent_config or AgentConfig()
 
     def _model_for(perms_model: str, global_override: str) -> dict[str, object]:
-        """Resolve model: CLI flag > agent-config.yaml > empty (provider default)."""
+        """Resolve model: CLI flag > config.yaml agents > provider default."""
         m = global_override or perms_model
         return {"model": m} if m else {}
 
@@ -242,7 +242,7 @@ def run_pipeline(
         else os.environ.get("PARALLEL_GATES", "").lower() in ("true", "1", "yes")
     )
 
-    # Per-agent timeouts: agent-config.yaml value takes precedence over global agent_timeout.
+    # Per-agent timeouts: config.yaml `agents:` value takes precedence over global agent_timeout.
     timeout_a = agent_cfg.agent_a.timeout or agent_timeout
     timeout_r = agent_cfg.agent_r.timeout or agent_timeout
 

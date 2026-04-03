@@ -8,7 +8,6 @@ Structure:
     ├── config.yaml                    (user-facing workflow settings)
     ├── PROMPT.yaml                    (Agent A task definition)
     ├── requirements.md                (Agent B/C verification criteria)
-    ├── agent-config.yaml              (agent allowed tools)
     └── runs/
         └── run-20260322-120000/       (one dir per pipeline run)
             ├── manifest.json          (config snapshot at run start)

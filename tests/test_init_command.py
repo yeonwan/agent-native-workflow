@@ -55,6 +55,9 @@ def test_init_creates_config_with_specified_provider(tmp_path: Path, monkeypatch
     cmd_init(_args(cli="copilot"))
     text = (tmp_path / ".agent-native-workflow" / "config.yaml").read_text()
     assert "cli-provider: copilot" in text
+    assert "agents:" in text
+    assert "shell(" in text
+    assert not (tmp_path / ".agent-native-workflow" / "agent-config.yaml").exists()
 
 
 def test_init_creates_config_with_claude_by_default(tmp_path: Path, monkeypatch) -> None:
@@ -66,6 +69,7 @@ def test_init_creates_config_with_claude_by_default(tmp_path: Path, monkeypatch)
     cmd_init(_args(cli=None))
     text = (tmp_path / ".agent-native-workflow" / "config.yaml").read_text()
     assert "cli-provider: claude" in text
+    assert "Bash(" in text
 
 
 # ── cmd_init when files already exist ────────────────────────────────────────
@@ -82,15 +86,15 @@ def test_init_updates_provider_files_when_cli_explicitly_set(
     # First init with claude
     cmd_init(_args(cli="claude"))
     config_yaml = tmp_path / ".agent-native-workflow" / "config.yaml"
-    agent_cfg = tmp_path / ".agent-native-workflow" / "agent-config.yaml"
     assert "cli-provider: claude" in config_yaml.read_text()
+    assert "Bash(" in config_yaml.read_text()
 
     # Re-init with copilot explicitly set
     cmd_init(_args(cli="copilot"))
-    assert "cli-provider: copilot" in config_yaml.read_text()
-    # agent-config.yaml regenerated with copilot shell tools
-    agent_text = agent_cfg.read_text()
-    assert "shell(" in agent_text
+    text = config_yaml.read_text()
+    assert "cli-provider: copilot" in text
+    assert "shell(" in text
+    assert "Bash(" not in text
 
 
 def test_init_skips_provider_files_without_cli_flag(tmp_path: Path, monkeypatch) -> None:
@@ -125,6 +129,20 @@ def test_init_never_overwrites_content_files(tmp_path: Path, monkeypatch) -> Non
     cmd_init(_args(cli="copilot"))
     assert prompt.read_text() == "MY CUSTOM PROMPT"
     assert reqs.read_text() == "MY CUSTOM REQUIREMENTS"
+
+
+def test_init_warns_when_legacy_agent_config_exists(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "agent_native_workflow.detect.detect_all",
+        lambda: _fake_detected(),
+    )
+    legacy = tmp_path / ".agent-native-workflow" / "agent-config.yaml"
+    legacy.parent.mkdir()
+    legacy.write_text("agent_a:\n  model: legacy\n")
+    cmd_init(_args(cli=None))
+    out = capsys.readouterr().out
+    assert "legacy .agent-native-workflow/agent-config.yaml" in out
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

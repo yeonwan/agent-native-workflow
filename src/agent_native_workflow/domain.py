@@ -226,32 +226,53 @@ class AgentConfig:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(self._to_yaml(), encoding="utf-8")
 
+    def to_embedded_yaml(self) -> str:
+        """Render an `agents:` block for embedding in config.yaml."""
+        lines = [
+            "# Advanced per-agent settings.",
+            "# Most users can leave this alone unless they want per-agent overrides.",
+            "# BEGIN agents",
+            "agents:",
+        ]
+        lines.extend(self._yaml_blocks(base_indent=2))
+        lines.append("# END agents")
+        return "\n".join(lines) + "\n"
+
     def _to_yaml(self) -> str:
         """Render agent-config.yaml with inline comments for discoverability."""
+        return "\n".join(self._yaml_blocks(base_indent=0)) + "\n"
+
+    def _yaml_blocks(self, base_indent: int) -> list[str]:
+        """Render per-agent YAML blocks with the requested left padding."""
+        prefix = " " * base_indent
 
         def _agent_block(name: str, perms: AgentPermissions, timeout_hint: str) -> str:
-            tools_lines = "\n".join(f"  - {t}" for t in perms.allowed_tools)
-            model_line = f"  model: {perms.model}" if perms.model else "  # model: "
+            tools_lines = "\n".join(f"{prefix}    - {t}" for t in perms.allowed_tools)
+            model_line = (
+                f"{prefix}  model: {perms.model}" if perms.model else f"{prefix}  # model: "
+            )
             timeout_line = (
-                f"  timeout: {perms.timeout}"
+                f"{prefix}  timeout: {perms.timeout}"
                 if perms.timeout is not None
-                else f"  # timeout: {timeout_hint}  # seconds; overrides global timeout"
+                else (
+                    f"{prefix}  # timeout: {timeout_hint}  "
+                    "# seconds; overrides global timeout"
+                )
             )
             return (
-                f"{name}:\n"
-                f"  allowed_tools:\n"
+                f"{prefix}{name}:\n"
+                f"{prefix}  allowed_tools:\n"
                 f"{tools_lines}\n"
                 f"{model_line}\n"
                 f"{timeout_line}"
             )
 
-        blocks = [
+        return [
             _agent_block("agent_a", self.agent_a, "300"),
             _agent_block("agent_r", self.agent_r, "180"),
             _agent_block("agent_b", self.agent_b, "180"),
             _agent_block("agent_c", self.agent_c, "120"),
         ]
-        return "\n".join(blocks) + "\n"
 
 
 class IterationOutcome(enum.Enum):

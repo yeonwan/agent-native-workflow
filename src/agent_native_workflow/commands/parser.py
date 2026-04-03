@@ -196,13 +196,13 @@ def build_parser() -> ArgumentParser:
     # init
     init_p = sub.add_parser(
         "init",
-        help="Create .agent-native-workflow/ with PROMPT.yaml, requirements, config, agent-config",
+        help="Create .agent-native-workflow/ with PROMPT.yaml, requirements, and config",
     )
     init_p.add_argument(
         "--cli",
         default=None,
         metavar="PROVIDER",
-        help="Seed agent-config.yaml default models for this provider (claude, copilot, …)",
+        help="Seed config.yaml agent defaults for this provider (claude, copilot, …)",
     )
 
     # status

@@ -124,8 +124,7 @@ After `anw init`, your project gets:
 
 ```
 .agent-native-workflow/
-├── config.yaml          # Pipeline settings (provider, verification, gates, limits)
-├── agent-config.yaml    # Per-agent tools & model selection (A, R, B, C)
+├── config.yaml          # Pipeline settings + advanced per-agent overrides
 ├── PROMPT.yaml          # Task definition for Agent A
 └── requirements.md      # Source of truth for verification agents
 ```
@@ -139,14 +138,11 @@ verification: review          # none | review | triangulation
 lint-cmd: ruff check .
 test-cmd: pytest
 max-iterations: 5
-```
-
-**agent-config.yaml**
-```yaml
-agent_a:
-  model: claude-sonnet-4-6
-agent_r:
-  model: claude-sonnet-4-6
+agents:
+  agent_a:
+    model: claude-sonnet-4-6
+  agent_r:
+    model: claude-sonnet-4-6
 ```
 
 All settings can be overridden via CLI flags or environment variables (`CLI_PROVIDER`, `VERIFICATION`, `LINT_CMD`, `TEST_CMD`, etc.).

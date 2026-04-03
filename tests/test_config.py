@@ -151,6 +151,72 @@ def test_from_config_dir_returns_empty_on_malformed_yaml(tmp_path: Path) -> None
     assert isinstance(result, dict)
 
 
+def test_from_config_dir_ignores_embedded_agents_block(tmp_path: Path) -> None:
+    cfg_dir = tmp_path / ".agent-native-workflow"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.yaml").write_text(
+        "cli-provider: claude\n"
+        "agents:\n"
+        "  agent_a:\n"
+        "    model: claude-sonnet-4-6\n"
+    )
+    result = WorkflowConfig.from_config_dir(tmp_path)
+    assert result == {"cli_provider": "claude"}
+
+
+def test_load_embedded_agent_config_reads_agents_from_config_yaml(tmp_path: Path) -> None:
+    cfg_dir = tmp_path / ".agent-native-workflow"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.yaml").write_text(
+        "agents:\n"
+        "  agent_a:\n"
+        "    model: claude-sonnet-4-6\n"
+        "    timeout: 123\n"
+        "  agent_r:\n"
+        "    allowed_tools:\n"
+        "      - Read\n"
+    )
+    agent_cfg = WorkflowConfig.load_embedded_agent_config(tmp_path)
+    assert agent_cfg is not None
+    assert agent_cfg.agent_a.model == "claude-sonnet-4-6"
+    assert agent_cfg.agent_a.timeout == 123
+    assert agent_cfg.agent_r.allowed_tools == ["Read"]
+
+
+def test_load_agent_config_uses_legacy_file(tmp_path: Path) -> None:
+    cfg_dir = tmp_path / ".agent-native-workflow"
+    cfg_dir.mkdir()
+    (cfg_dir / "agent-config.yaml").write_text(
+        "agent_a:\n"
+        "  model: legacy-model\n"
+        "agent_r:\n"
+        "  allowed_tools:\n"
+        "    - Read\n"
+    )
+    agent_cfg = WorkflowConfig.load_agent_config(tmp_path)
+    assert agent_cfg.agent_a.model == "legacy-model"
+    assert agent_cfg.agent_r.allowed_tools == ["Read"]
+
+
+def test_load_agent_config_prefers_embedded_agents_over_legacy(tmp_path: Path) -> None:
+    cfg_dir = tmp_path / ".agent-native-workflow"
+    cfg_dir.mkdir()
+    (cfg_dir / "agent-config.yaml").write_text(
+        "agent_a:\n"
+        "  model: legacy-model\n"
+        "agent_r:\n"
+        "  model: legacy-review\n"
+    )
+    (cfg_dir / "config.yaml").write_text(
+        "agents:\n"
+        "  agent_a:\n"
+        "    model: embedded-model\n"
+    )
+    agent_cfg = WorkflowConfig.load_agent_config(tmp_path)
+    assert agent_cfg.agent_a.model == "embedded-model"
+    assert agent_cfg.agent_r.model == "legacy-review"
+
+
 # ── resolve priority ──────────────────────────────────────────────────────────
 
 
@@ -193,3 +259,17 @@ def test_resolve_unknown_keys_are_ignored(tmp_path: Path) -> None:
 def test_resolve_returns_workflow_config_instance(tmp_path: Path) -> None:
     cfg = WorkflowConfig.resolve(project_root=tmp_path)
     assert isinstance(cfg, WorkflowConfig)
+
+
+def test_resolve_attaches_embedded_agent_config(tmp_path: Path) -> None:
+    cfg_dir = tmp_path / ".agent-native-workflow"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.yaml").write_text(
+        "cli-provider: claude\n"
+        "agents:\n"
+        "  agent_a:\n"
+        "    model: embedded-model\n"
+    )
+    cfg = WorkflowConfig.resolve(project_root=tmp_path)
+    assert cfg.agent_config is not None
+    assert cfg.agent_config.agent_a.model == "embedded-model"

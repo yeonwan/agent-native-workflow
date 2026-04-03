@@ -80,6 +80,41 @@ def _read_toml(path: Path) -> dict[str, object]:
         return {}
 
 
+def _clone_permissions(perms: AgentPermissions) -> AgentPermissions:
+    return AgentPermissions(
+        allowed_tools=list(perms.allowed_tools),
+        permission_mode=perms.permission_mode,
+        model=perms.model,
+        timeout=perms.timeout,
+    )
+
+
+def _merge_agent(raw: object, fallback: AgentPermissions) -> AgentPermissions:
+    if not isinstance(raw, dict) or not raw:
+        return _clone_permissions(fallback)
+    tools = raw.get("allowed_tools")
+    if tools is None:
+        tools = fallback.allowed_tools
+    raw_timeout = raw.get("timeout")
+    timeout = int(raw_timeout) if raw_timeout is not None else fallback.timeout
+    return AgentPermissions(
+        allowed_tools=list(tools),  # type: ignore[arg-type]
+        permission_mode=str(raw.get("permission_mode", fallback.permission_mode)),
+        model=str(raw.get("model", fallback.model)),
+        timeout=timeout,
+    )
+
+
+def _merge_agent_config(raw: object, fallback: AgentConfig | None = None) -> AgentConfig:
+    base = fallback or AgentConfig()
+    return AgentConfig(
+        agent_a=_merge_agent(getattr(raw, "get", lambda *_args, **_kwargs: None)("agent_a"), base.agent_a),
+        agent_r=_merge_agent(getattr(raw, "get", lambda *_args, **_kwargs: None)("agent_r"), base.agent_r),
+        agent_b=_merge_agent(getattr(raw, "get", lambda *_args, **_kwargs: None)("agent_b"), base.agent_b),
+        agent_c=_merge_agent(getattr(raw, "get", lambda *_args, **_kwargs: None)("agent_c"), base.agent_c),
+    )
+
+
 @dataclass
 class WorkflowConfig:
     """Workflow configuration.
@@ -120,10 +155,33 @@ class WorkflowConfig:
     agent_config: AgentConfig | None = field(default=None, repr=False)
 
     @staticmethod
-    def load_agent_config(root: Path | None = None) -> AgentConfig:
+    def _load_raw_config_yaml(root: Path | None = None) -> dict[str, object]:
+        r = root or Path.cwd()
+        config_path = r / ".agent-native-workflow" / "config.yaml"
+        if not config_path.is_file():
+            return {}
+        try:
+            import yaml  # type: ignore[import-untyped]
+
+            raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+            return raw if isinstance(raw, dict) else {}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def load_embedded_agent_config(
+        root: Path | None = None, fallback: AgentConfig | None = None
+    ) -> AgentConfig | None:
+        raw = WorkflowConfig._load_raw_config_yaml(root)
+        agents = raw.get("agents")
+        if agents is None:
+            return None
+        return _merge_agent_config(agents, fallback=fallback)
+
+    @staticmethod
+    def load_legacy_agent_config(root: Path | None = None) -> AgentConfig:
         r = root or Path.cwd()
         config_file = r / ".agent-native-workflow" / "agent-config.yaml"
-
         if not config_file.is_file():
             return AgentConfig()
 
@@ -131,37 +189,15 @@ class WorkflowConfig:
             import yaml  # type: ignore[import-untyped]
 
             data = yaml.safe_load(config_file.read_text(encoding="utf-8")) or {}
-
-            blank = AgentConfig()
-
-            def _merge_agent(raw: object, fallback: AgentPermissions) -> AgentPermissions:
-                if not isinstance(raw, dict) or not raw:
-                    return AgentPermissions(
-                        allowed_tools=list(fallback.allowed_tools),
-                        permission_mode=fallback.permission_mode,
-                        model=fallback.model,
-                        timeout=fallback.timeout,
-                    )
-                tools = raw.get("allowed_tools")
-                if tools is None:
-                    tools = fallback.allowed_tools
-                raw_timeout = raw.get("timeout")
-                timeout = int(raw_timeout) if raw_timeout is not None else fallback.timeout
-                return AgentPermissions(
-                    allowed_tools=list(tools),  # type: ignore[arg-type]
-                    permission_mode=str(raw.get("permission_mode", fallback.permission_mode)),
-                    model=str(raw.get("model", fallback.model)),
-                    timeout=timeout,
-                )
-
-            return AgentConfig(
-                agent_a=_merge_agent(data.get("agent_a"), blank.agent_a),
-                agent_r=_merge_agent(data.get("agent_r"), blank.agent_r),
-                agent_b=_merge_agent(data.get("agent_b"), blank.agent_b),
-                agent_c=_merge_agent(data.get("agent_c"), blank.agent_c),
-            )
+            return _merge_agent_config(data, fallback=AgentConfig())
         except Exception:
             return AgentConfig()
+
+    @staticmethod
+    def load_agent_config(root: Path | None = None) -> AgentConfig:
+        legacy = WorkflowConfig.load_legacy_agent_config(root)
+        embedded = WorkflowConfig.load_embedded_agent_config(root, fallback=legacy)
+        return embedded or legacy
 
     @staticmethod
     def from_pyproject(root: Path | None = None) -> dict[str, object]:
@@ -177,19 +213,11 @@ class WorkflowConfig:
     @staticmethod
     def from_config_dir(root: Path | None = None) -> dict[str, object]:
         """Read .agent-native-workflow/config.yaml — the primary user-facing config."""
-        r = root or Path.cwd()
-        config_path = r / ".agent-native-workflow" / "config.yaml"
-        if not config_path.is_file():
+        raw = WorkflowConfig._load_raw_config_yaml(root)
+        if not raw:
             return {}
-        try:
-            import yaml  # type: ignore[import-untyped]
-
-            raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-            if not isinstance(raw, dict):
-                return {}
-            return _normalize_toml(raw)  # reuse key normalisation (kebab → snake)
-        except Exception:
-            return {}
+        raw.pop("agents", None)
+        return _normalize_toml(raw)  # reuse key normalisation (kebab → snake)
 
     @staticmethod
     def from_file(root: Path | None = None) -> dict[str, object]:
@@ -228,5 +256,6 @@ class WorkflowConfig:
         filtered = {k: v for k, v in merged.items() if k in known}
 
         config = cls(**filtered)
-        config.agent_config = cls.load_agent_config(root)
+        if config.agent_config is None:
+            config.agent_config = cls.load_agent_config(root)
         return config

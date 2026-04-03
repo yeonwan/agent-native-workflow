@@ -108,7 +108,11 @@ CODEREVIEW_MD = """\
 
 
 def config_yaml(
-    project_type: str, lint_hint: str, test_hint: str, cli_provider: str = "claude"
+    project_type: str,
+    lint_hint: str,
+    test_hint: str,
+    cli_provider: str = "claude",
+    agents_yaml: str = "",
 ) -> str:
     return f"""\
 # agent-native-workflow configuration
@@ -139,4 +143,6 @@ verification: review
 # max-iterations: 5
 # timeout: 300    # seconds per agent call
 # max-retries: 2
+
+{agents_yaml.rstrip()}
 """
