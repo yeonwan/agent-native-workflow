@@ -76,7 +76,10 @@ class TestLoadRunSummary:
                 "converged": True,
                 "total_iterations": 2,
                 "total_duration_s": 42.0,
-                "iterations": [],
+                "iterations": [
+                    {"iteration": 1, "outcome": "verify_fail"},
+                    {"iteration": 2, "outcome": "pass"},
+                ],
             },
             iterations=[
                 {
@@ -108,9 +111,9 @@ class TestLoadRunSummary:
         assert summary["manifest"]["config"]["cli_provider"] == "claude"
         assert summary["metrics"]["converged"] is True
         assert len(summary["iterations"]) == 2
-        # verify outcome is inferred from feedback
+        # outcome should come from metrics when available
         assert summary["iterations"][0]["outcome"] == "verify_fail"
-        assert summary["iterations"][1]["outcome"] == ""
+        assert summary["iterations"][1]["outcome"] == "pass"
         assert summary["verification_mode"] == "unknown"
 
     def test_verification_mode_and_artifacts_from_disk(self, tmp_path):
@@ -268,8 +271,9 @@ class TestCmdStatus:
                 "converged": True,
                 "total_iterations": 1,
                 "total_duration_s": 5.0,
-                "iterations": [],
+                "iterations": [{"iteration": 1, "outcome": "pass"}],
             },
+            iterations=[{"iteration": 1, "gate_results": []}],
         )
         latest = tmp_path / "latest"
         latest.symlink_to(run_dir.resolve())
@@ -280,6 +284,7 @@ class TestCmdStatus:
         assert run_id in captured.out
         assert "yes" in captured.out  # converged
         assert "Verification: none" in captured.out
+        assert "pass" in captured.out
 
     def test_explicit_run_id_prints_correct_run(self, tmp_path, capsys):
         run_id = "run-20260322-130000"

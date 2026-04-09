@@ -352,6 +352,13 @@ class RunStore:
 
         # per-iteration data
         iterations: list[dict[str, object]] = []
+        metrics_by_iteration: dict[int, dict[str, object]] = {}
+        if metrics:
+            for im in metrics.get("iterations") or []:
+                if isinstance(im, dict):
+                    iter_num = im.get("iteration")
+                    if isinstance(iter_num, int):
+                        metrics_by_iteration[iter_num] = im
         iter_dirs = sorted(run_dir.glob("iter-[0-9][0-9][0-9]"))
         for iter_dir in iter_dirs:
             iter_num_str = iter_dir.name.replace("iter-", "")
@@ -369,8 +376,11 @@ class RunStore:
                     pass
 
             outcome = ""
+            iter_metrics = metrics_by_iteration.get(iter_num, {})
+            if isinstance(iter_metrics, dict):
+                outcome = str(iter_metrics.get("outcome", "") or "")
             feedback_path = iter_dir / "feedback.md"
-            if feedback_path.is_file():
+            if not outcome and feedback_path.is_file():
                 feedback_text = feedback_path.read_text()
                 if "gate_fail" in feedback_text:
                     outcome = IterationOutcome.GATE_FAIL.value
@@ -390,11 +400,8 @@ class RunStore:
                 verification_kind = ""
 
             verification_result = ""
-            if metrics:
-                for im in metrics.get("iterations") or []:
-                    if isinstance(im, dict) and im.get("iteration") == iter_num:
-                        verification_result = str(im.get("verification_result", "") or "")
-                        break
+            if isinstance(iter_metrics, dict):
+                verification_result = str(iter_metrics.get("verification_result", "") or "")
 
             iterations.append(
                 {
