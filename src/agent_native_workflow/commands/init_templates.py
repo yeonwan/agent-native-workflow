@@ -17,8 +17,6 @@ title: "Implement requirements"
 
 build: |
   Read requirements.md and implement everything listed there.
-  After implementing, verify your changes compile and the related tests pass
-  before completing your turn.
 
 
 # Add more context when the requirements file alone isn't enough for Agent A:

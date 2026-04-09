@@ -65,7 +65,7 @@ _AGENT_A_BUILD_TOOLS: dict[str, list[str]] = {
     "rust": ["Bash(cargo:*)", "Bash(make:*)"],
     "go": ["Bash(go:*)", "Bash(make:*)"],
     "java-maven": ["Bash(mvn:*)", "Bash(make:*)"],
-    "java-gradle": ["Bash(./gradlew compileJava)", "Bash(./gradlew test --tests*)"],
+    "java-gradle": ["Bash(./gradlew compileJava)"],
 }
 
 # ── GitHub Copilot CLI tool definitions ───────────────────────────────────────
@@ -88,7 +88,7 @@ _COPILOT_AGENT_A_BUILD_TOOLS: dict[str, list[str]] = {
     "rust": ["shell(cargo:*)", "shell(make:*)"],
     "go": ["shell(go:*)", "shell(make:*)"],
     "java-maven": ["shell(mvn:*)", "shell(make:*)"],
-    "java-gradle": ["shell(./gradlew compileJava)", "shell(./gradlew test --tests*)"],
+    "java-gradle": ["shell(./gradlew compileJava)"],
 }
 _COPILOT_AGENT_R_TOOLS = ["read", "grep", "glob", "shell(git diff)", "shell(git log)"]
 _COPILOT_AGENT_B_TOOLS = ["read", "grep", "glob", "shell(git diff)", "shell(git log)"]
@@ -104,10 +104,10 @@ _DEFAULT_MODELS: dict[str, dict[str, str]] = {
         "agent_c": "claude-haiku-4-5-20251001",  # triangulation C
     },
     "copilot": {
-        "agent_a": "gpt-4.1",
-        "agent_r": "gpt-4.1",
-        "agent_b": "gpt-4.1",
-        "agent_c": "gpt-4.1",
+        "agent_a": "gpt-5.4",
+        "agent_r": "gpt-5.4",
+        "agent_b": "gpt-5.4",
+        "agent_c": "gpt-5.4",
     },
     "codex": {
         "agent_a": "o4-mini",
