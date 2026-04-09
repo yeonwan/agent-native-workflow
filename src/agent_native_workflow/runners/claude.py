@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
 import threading
 import time
@@ -10,6 +12,22 @@ from typing import Any
 
 from agent_native_workflow.log import Logger
 from agent_native_workflow.runners.base import RunResult
+
+
+def _terminate_process(proc: subprocess.Popen[str]) -> None:
+    """Terminate the Claude process tree so resume sessions do not linger."""
+    pid = getattr(proc, "pid", None)
+    if os.name != "nt" and pid is not None:
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+        except ProcessLookupError:
+            return
+        except OSError:
+            pass
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        return
 
 
 def _stream_stdout(
@@ -138,7 +156,7 @@ class ClaudeCodeRunner:
         prompt: str,
         *,
         session_id: str | None = None,
-        timeout: int = 300,
+        timeout: int = 600,
         max_retries: int = 2,
         logger: Logger | None = None,
         on_output: Callable[[str], None] | None = None,
@@ -176,6 +194,7 @@ class ClaudeCodeRunner:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
+                    start_new_session=(os.name != "nt"),
                 )
 
                 text_parts: list[str] = []
@@ -189,7 +208,11 @@ class ClaudeCodeRunner:
                 try:
                     proc.wait(timeout=timeout)
                 except subprocess.TimeoutExpired:
-                    proc.kill()
+                    _terminate_process(proc)
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        pass
                     reader.join(timeout=5)
                     if logger:
                         logger.warn(f"claude timed out after {timeout}s (attempt {attempt})")

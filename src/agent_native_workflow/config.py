@@ -125,7 +125,7 @@ class WorkflowConfig:
     prompt_file: Path | None = Path(".agent-native-workflow/PROMPT.yaml")
     requirements_file: Path | None = Path(".agent-native-workflow/requirements.md")
     max_iterations: int = 5
-    timeout: int = 300
+    timeout: int = 600
     max_retries: int = 2
     base_branch: str = "main"
     security_agent_enabled: bool = True
@@ -146,8 +146,8 @@ class WorkflowConfig:
     # Post-gate verification: none | review | triangulation
     verification: str = "review"
 
-    # Advisory convergence: 0 = ignore advisory (default), N = retry up to N times for advisory
-    advisory_iterations: int = 0
+    # Advisory convergence: 0 = ignore advisory, N = retry up to N times for advisory
+    advisory_iterations: int = 1
 
     # Desktop notifications
     notify: bool = True

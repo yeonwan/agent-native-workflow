@@ -224,8 +224,10 @@ def test_resolve_defaults_when_nothing_set(tmp_path: Path, monkeypatch: pytest.M
     monkeypatch.delenv("CLI_PROVIDER", raising=False)
     cfg = WorkflowConfig.resolve(project_root=tmp_path)
     assert cfg.max_iterations == 5
+    assert cfg.timeout == 600
     assert cfg.cli_provider == "copilot"
     assert cfg.verification == "review"
+    assert cfg.advisory_iterations == 1
 
 
 def test_resolve_explicit_overrides_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

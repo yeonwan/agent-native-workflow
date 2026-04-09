@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import re
+import signal
+import subprocess
 from unittest.mock import patch
 
 import pytest
@@ -64,6 +66,7 @@ def _make_popen(
             if captured is not None:
                 captured.append(cmd)
             self.returncode = returncode
+            self.pid = 12345
             self.stdout = iter(f"{line}\n" for line in (lines or _DEFAULT_STREAM))
             self.stderr = _FakeStderr()
 
@@ -116,6 +119,29 @@ def test_claude_uses_verbose_flag() -> None:
 def test_claude_uses_include_partial_messages_flag() -> None:
     cmd = _run_and_capture(ClaudeCodeRunner())
     assert "--include-partial-messages" in cmd
+
+
+def test_claude_starts_new_session_for_subprocess() -> None:
+    kwargs_seen: list[dict[str, object]] = []
+
+    class _Popen:
+        def __init__(self, cmd: list[str], **kwargs: object) -> None:
+            del cmd
+            kwargs_seen.append(kwargs)
+            self.returncode = 0
+            self.pid = 12345
+            self.stdout = iter(f"{line}\n" for line in _DEFAULT_STREAM)
+            self.stderr = _FakeStderr()
+
+        def wait(self, timeout: float | None = None) -> int:
+            return self.returncode
+
+        def kill(self) -> None:
+            pass
+
+    with patch("agent_native_workflow.runners.claude.subprocess.Popen", _Popen):
+        ClaudeCodeRunner().run("p", timeout=10, max_retries=1)
+    assert kwargs_seen[0]["start_new_session"] is True
 
 
 def test_claude_uses_p_flag_for_prompt() -> None:
@@ -335,6 +361,35 @@ def test_claude_raises_when_binary_missing() -> None:
     ):
         with pytest.raises(RuntimeError, match="claude.*CLI not found"):
             ClaudeCodeRunner().run("p", timeout=10, max_retries=1)
+
+
+def test_claude_timeout_kills_process_group_before_retry() -> None:
+    attempts = [0]
+
+    class _Popen:
+        def __init__(self, cmd: list[str], **_kw: object) -> None:
+            del cmd
+            attempts[0] += 1
+            self.returncode = 0
+            self.pid = 12345
+            self.stdout = iter(())
+            self.stderr = _FakeStderr()
+
+        def wait(self, timeout: float | None = None) -> int:
+            if attempts[0] == 1 and timeout is not None and timeout < 100:
+                raise subprocess.TimeoutExpired("claude", timeout)
+            return self.returncode
+
+        def kill(self) -> None:
+            pass
+
+    with patch("agent_native_workflow.runners.claude.subprocess.Popen", _Popen):
+        with patch("agent_native_workflow.runners.claude.os.getpgid", return_value=12345):
+            with patch("agent_native_workflow.runners.claude.os.killpg") as killpg:
+                with patch("agent_native_workflow.runners.claude.time.sleep"):
+                    ClaudeCodeRunner().run("p", timeout=10, max_retries=2)
+    killpg.assert_called_once_with(12345, signal.SIGKILL)
+    assert attempts[0] == 2
 
 
 def test_claude_raises_after_all_retries_exhausted() -> None:

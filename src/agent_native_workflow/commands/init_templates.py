@@ -131,8 +131,8 @@ cli-provider: {cli_provider}
 verification: review
 
 # Advisory convergence: when > 0, Agent R's advisory suggestions are sent back
-# to Agent A up to N times before accepting. 0 = ignore advisory (default).
-# advisory-iterations: 0
+# to Agent A up to N times before accepting. Default: 1 advisory retry.
+advisory-iterations: 1
 
 # Quality gate commands (auto-detected from project type: {project_type}).
 # Edit or remove to override.
@@ -141,7 +141,7 @@ verification: review
 
 # Pipeline limits
 # max-iterations: 5
-# timeout: 300    # seconds per agent call
+# timeout: 600    # seconds per agent call
 # max-retries: 2
 
 {agents_yaml.rstrip()}

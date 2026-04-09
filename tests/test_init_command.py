@@ -55,6 +55,8 @@ def test_init_creates_config_with_specified_provider(tmp_path: Path, monkeypatch
     cmd_init(_args(cli="copilot"))
     text = (tmp_path / ".agent-native-workflow" / "config.yaml").read_text()
     assert "cli-provider: copilot" in text
+    assert "advisory-iterations: 1" in text
+    assert "# timeout: 600" in text
     assert "agents:" in text
     assert "shell(" in text
     assert not (tmp_path / ".agent-native-workflow" / "agent-config.yaml").exists()
