@@ -10,7 +10,11 @@ import pytest
 
 from agent_native_workflow.config import WorkflowConfig
 from agent_native_workflow.detect import ProjectConfig
-from agent_native_workflow.domain import REVIEW_APPROVE_MARKER
+from agent_native_workflow.domain import (
+    REVIEW_RESULT_BLOCK_END,
+    REVIEW_RESULT_BLOCK_START,
+    REVIEW_VERDICT_PASS,
+)
 from agent_native_workflow.pipeline import run_pipeline
 from agent_native_workflow.runners.base import AgentRunner, RunResult
 from agent_native_workflow.store import RunStore
@@ -61,6 +65,16 @@ def _write_prompt_and_req(root: Path) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     return prompt, req
+
+
+def _review_pass_block() -> str:
+    return (
+        f"{REVIEW_RESULT_BLOCK_START}\n"
+        f"verdict: {REVIEW_VERDICT_PASS}\n"
+        "blocking_count: 0\n"
+        "advisory_count: 0\n"
+        f"{REVIEW_RESULT_BLOCK_END}"
+    )
 
 
 class _DeadRunner:
@@ -230,7 +244,7 @@ class _ReviewRunner:
         on_output=None,
     ) -> RunResult:
         self.verification_sessions.append(session_id)
-        return RunResult(f"report\n{REVIEW_APPROVE_MARKER}\n", session_id="r-sess-1")
+        return RunResult(f"report\n{_review_pass_block()}\n", session_id="r-sess-1")
 
 
 def test_pipeline_review_mode_persists_agent_r_session(
@@ -297,7 +311,7 @@ class _FlakyReview:
         self._n += 1
         if self._n == 1:
             return RunResult("needs work\n", session_id="r-stable")
-        return RunResult(f"ok\n{REVIEW_APPROVE_MARKER}\n", session_id="r-stable")
+        return RunResult(f"ok\n{_review_pass_block()}\n", session_id="r-stable")
 
 
 def test_pipeline_review_resumes_verification_session_on_second_iteration(

@@ -15,7 +15,11 @@ import pytest
 
 from agent_native_workflow.config import WorkflowConfig
 from agent_native_workflow.detect import ProjectConfig
-from agent_native_workflow.domain import REVIEW_APPROVE_MARKER
+from agent_native_workflow.domain import (
+    REVIEW_RESULT_BLOCK_END,
+    REVIEW_RESULT_BLOCK_START,
+    REVIEW_VERDICT_PASS,
+)
 from agent_native_workflow.pipeline import run_pipeline
 from agent_native_workflow.runners.base import RunResult
 from agent_native_workflow.store import RunStore
@@ -32,6 +36,16 @@ def _write_prompt_and_req(root: Path) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     return prompt, req
+
+
+def _review_pass_block() -> str:
+    return (
+        f"{REVIEW_RESULT_BLOCK_START}\n"
+        f"verdict: {REVIEW_VERDICT_PASS}\n"
+        "blocking_count: 0\n"
+        "advisory_count: 0\n"
+        f"{REVIEW_RESULT_BLOCK_END}"
+    )
 
 
 class _DeadRunner:
@@ -256,7 +270,7 @@ def test_verify_runner_not_called_on_no_progress_iter(
 
         def run(self, *args: object, **kwargs: object) -> RunResult:
             spy_called[0] = True
-            return RunResult(REVIEW_APPROVE_MARKER, session_id=None)
+            return RunResult(_review_pass_block(), session_id=None)
 
     spy = _SpyRunner()
     runner = _make_runner()

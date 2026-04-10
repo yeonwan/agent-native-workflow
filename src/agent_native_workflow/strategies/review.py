@@ -2,16 +2,62 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+import re
 
 from agent_native_workflow.detect import ProjectConfig
 from agent_native_workflow.domain import (
-    REVIEW_APPROVE_MARKER,
-    REVIEW_APPROVE_WITH_ADVISORY_MARKER,
+    REVIEW_RESULT_BLOCK_END,
+    REVIEW_RESULT_BLOCK_START,
+    REVIEW_VERDICT_FAIL,
+    REVIEW_VERDICT_PASS,
+    REVIEW_VERDICT_PASS_WITH_ADVISORY,
     VerificationResult,
 )
 from agent_native_workflow.log import Logger
 from agent_native_workflow.runners.base import AgentRunner
 from agent_native_workflow.store import RunStore
+
+
+_RESULT_BLOCK_RE = re.compile(
+    rf"(?ms){re.escape(REVIEW_RESULT_BLOCK_START)}\s*\n(.*?)\n{re.escape(REVIEW_RESULT_BLOCK_END)}\s*$"
+)
+
+
+def _parse_review_result(output: str) -> tuple[bool, bool] | None:
+    """Parse the machine-readable trailer at the end of a review output.
+
+    Returns:
+        tuple[passed, advisory_only] when the trailer is valid, else ``None``.
+    """
+    blocks = list(_RESULT_BLOCK_RE.finditer(output.strip()))
+    if len(blocks) != 1:
+        return None
+
+    fields: dict[str, str] = {}
+    for line in blocks[0].group(1).splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        fields[key.strip()] = value.strip()
+
+    verdict = fields.get("verdict", "")
+    try:
+        blocking_count = int(fields.get("blocking_count", "-1"))
+        advisory_count = int(fields.get("advisory_count", "-1"))
+    except ValueError:
+        return None
+
+    if verdict == REVIEW_VERDICT_FAIL and blocking_count > 0 and advisory_count >= 0:
+        return (False, False)
+    if verdict == REVIEW_VERDICT_PASS and blocking_count == 0 and advisory_count == 0:
+        return (True, False)
+    if (
+        verdict == REVIEW_VERDICT_PASS_WITH_ADVISORY
+        and blocking_count == 0
+        and advisory_count > 0
+    ):
+        return (True, True)
+    return None
 
 
 class ReviewStrategy:
@@ -94,16 +140,23 @@ These MUST be fixed before approval.
 Code quality improvements, convention violations, naming, patterns.
 These do NOT block approval but are recommended.
 
-## Verdict
-If ALL requirements are MET and there are no blocking issues AND no advisory suggestions:
-{REVIEW_APPROVE_MARKER}
+## Final Output Contract
+At the very end of your response, output exactly one machine-readable result block:
 
-If ALL requirements are MET and there are no blocking issues BUT advisory suggestions exist:
-{REVIEW_APPROVE_WITH_ADVISORY_MARKER}
-Then list all advisory suggestions below the marker.
+{REVIEW_RESULT_BLOCK_START}
+verdict: pass | pass_with_advisory | fail
+blocking_count: <integer>
+advisory_count: <integer>
+{REVIEW_RESULT_BLOCK_END}
 
-Otherwise (blocking issues exist), list exactly what Agent A must fix (blocking issues only).
-Do NOT output any approval marker when blocking issues exist."""
+Rules for the result block:
+- Use `pass` only when blocking_count=0 and advisory_count=0
+- Use `pass_with_advisory` only when blocking_count=0 and advisory_count>0
+- Use `fail` only when blocking_count>0
+- Do NOT use these sentinel strings anywhere else in the response
+- The result block must be the final thing in the response
+
+Otherwise (blocking issues exist), list exactly what Agent A must fix (blocking issues only)."""
 
         logger.info("Phase R: Requirements-based code review")
         run_out = self._runner.run(
@@ -120,7 +173,17 @@ Do NOT output any approval marker when blocking issues exist."""
 
         next_sid = run_out.session_id if self._runner.supports_resume else None
 
-        if REVIEW_APPROVE_WITH_ADVISORY_MARKER in output:
+        parsed = _parse_review_result(output)
+        if parsed is None:
+            logger.warn("RESULT: FAIL-CLOSED (review produced malformed verdict block)")
+            return VerificationResult(
+                passed=False,
+                feedback=output,
+                next_agent_r_session_id=next_sid,
+            )
+
+        passed, advisory_only = parsed
+        if advisory_only:
             logger.info("RESULT: PASS with advisory (review)")
             return VerificationResult(
                 passed=True,
@@ -129,7 +192,7 @@ Do NOT output any approval marker when blocking issues exist."""
                 next_agent_r_session_id=next_sid,
             )
 
-        if REVIEW_APPROVE_MARKER in output:
+        if passed:
             logger.info("RESULT: PASS (review)")
             return VerificationResult(
                 passed=True,

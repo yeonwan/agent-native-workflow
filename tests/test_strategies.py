@@ -10,7 +10,11 @@ import pytest
 from agent_native_workflow.detect import ProjectConfig
 from agent_native_workflow.domain import (
     CONSENSUS_AGREE_MARKER,
-    REVIEW_APPROVE_WITH_ADVISORY_MARKER,
+    REVIEW_RESULT_BLOCK_END,
+    REVIEW_RESULT_BLOCK_START,
+    REVIEW_VERDICT_FAIL,
+    REVIEW_VERDICT_PASS,
+    REVIEW_VERDICT_PASS_WITH_ADVISORY,
     TRIANGULAR_PASS_MARKER,
 )
 from agent_native_workflow.log import Logger
@@ -39,6 +43,16 @@ def test_none_strategy_always_passes() -> None:
     assert result.feedback == ""
 
 
+def _review_block(verdict: str, *, blocking_count: int, advisory_count: int) -> str:
+    return (
+        f"{REVIEW_RESULT_BLOCK_START}\n"
+        f"verdict: {verdict}\n"
+        f"blocking_count: {blocking_count}\n"
+        f"advisory_count: {advisory_count}\n"
+        f"{REVIEW_RESULT_BLOCK_END}"
+    )
+
+
 class _ApproveRunner:
     provider_name = "fake"
     supports_file_tools = True
@@ -55,7 +69,10 @@ class _ApproveRunner:
         on_output=None,
     ) -> RunResult:
         assert "src/foo.py" in prompt
-        return RunResult(output="All good.\nREVIEW_APPROVE\n", session_id=None)
+        return RunResult(
+            output=f"All good.\n{_review_block(REVIEW_VERDICT_PASS, blocking_count=0, advisory_count=0)}",
+            session_id=None,
+        )
 
 
 class _RejectRunner:
@@ -96,7 +113,8 @@ def test_review_strategy_passes_and_writes_review(tmp_path: Path) -> None:
     assert result.feedback == ""
     assert result.next_agent_r_session_id is None
     review = (store.run_dir / "iter-001" / "review.md").read_text()
-    assert "REVIEW_APPROVE" in review
+    assert REVIEW_RESULT_BLOCK_START in review
+    assert "verdict: pass" in review
 
 
 class _ResumeReviewRunner:
@@ -118,7 +136,10 @@ class _ResumeReviewRunner:
         on_output=None,
     ) -> RunResult:
         self.last_session_in.append(session_id)
-        return RunResult(output="ok\nREVIEW_APPROVE\n", session_id="review-sess-42")
+        return RunResult(
+            output=f"ok\n{_review_block(REVIEW_VERDICT_PASS, blocking_count=0, advisory_count=0)}",
+            session_id="review-sess-42",
+        )
 
 
 def test_review_strategy_resume_passes_session_and_returns_next_id(tmp_path: Path) -> None:
@@ -351,7 +372,10 @@ class _CaptureRunner:
         on_output=None,
     ) -> RunResult:
         self.last_prompt = prompt
-        return RunResult(output="ok\nREVIEW_APPROVE\n", session_id=None)
+        return RunResult(
+            output=f"ok\n{_review_block(REVIEW_VERDICT_PASS, blocking_count=0, advisory_count=0)}",
+            session_id=None,
+        )
 
 
 def test_review_prompt_includes_consistency_check(tmp_path: Path) -> None:
@@ -437,7 +461,7 @@ def test_review_two_tier_verdict_format(tmp_path: Path) -> None:
 
 
 class _AdvisoryRunner:
-    """Returns REVIEW_APPROVE_WITH_ADVISORY marker."""
+    """Returns a valid pass_with_advisory review block."""
 
     provider_name = "fake"
     supports_file_tools = True
@@ -454,7 +478,11 @@ class _AdvisoryRunner:
         on_output=None,
     ) -> RunResult:
         return RunResult(
-            output=f"All requirements met.\n{REVIEW_APPROVE_WITH_ADVISORY_MARKER}\n- Consider renaming foo to bar\n",
+            output=(
+                "All requirements met.\n"
+                "- Consider renaming foo to bar\n"
+                f"{_review_block(REVIEW_VERDICT_PASS_WITH_ADVISORY, blocking_count=0, advisory_count=1)}"
+            ),
             session_id=None,
         )
 
@@ -518,8 +546,103 @@ def test_review_prompt_includes_advisory_marker(tmp_path: Path) -> None:
         max_retries=1,
         logger=Logger(),
     )
-    assert "REVIEW_APPROVE_WITH_ADVISORY" in runner.last_prompt
-    assert "REVIEW_APPROVE" in runner.last_prompt
+    assert REVIEW_RESULT_BLOCK_START in runner.last_prompt
+    assert "verdict: pass | pass_with_advisory | fail" in runner.last_prompt
+    assert REVIEW_RESULT_BLOCK_END in runner.last_prompt
+
+
+class _FalsePositiveRunner:
+    provider_name = "fake"
+    supports_file_tools = True
+    supports_resume = False
+
+    def run(
+        self,
+        prompt: str,
+        *,
+        session_id: str | None = None,
+        timeout: int = 300,
+        max_retries: int = 2,
+        logger=None,
+        on_output=None,
+    ) -> RunResult:
+        return RunResult(
+            output=(
+                "Blocking Issues remain.\n"
+                "Do NOT output REVIEW_APPROVE when blocking issues exist.\n"
+                "Agent A must fix validation.\n"
+                f"{_review_block(REVIEW_VERDICT_FAIL, blocking_count=1, advisory_count=0)}"
+            ),
+            session_id=None,
+        )
+
+
+def test_review_strategy_does_not_false_positive_on_approve_text(tmp_path: Path) -> None:
+    store = RunStore(base_dir=tmp_path)
+    store.start_run({})
+    reqs = tmp_path / "requirements.md"
+    reqs.write_text("# R\n")
+    cfg = ProjectConfig(changed_files=["src/foo.py"])
+    strategy = ReviewStrategy(_FalsePositiveRunner())
+    result = strategy.run(
+        requirements_file=reqs,
+        store=store,
+        iteration=1,
+        config=cfg,
+        timeout=30,
+        max_retries=1,
+        logger=Logger(),
+    )
+    assert result.passed is False
+    assert "Blocking Issues remain" in result.feedback
+
+
+class _MalformedResultRunner:
+    provider_name = "fake"
+    supports_file_tools = True
+    supports_resume = False
+
+    def run(
+        self,
+        prompt: str,
+        *,
+        session_id: str | None = None,
+        timeout: int = 300,
+        max_retries: int = 2,
+        logger=None,
+        on_output=None,
+    ) -> RunResult:
+        return RunResult(
+            output=(
+                "Review text.\n"
+                f"{REVIEW_RESULT_BLOCK_START}\n"
+                f"verdict: {REVIEW_VERDICT_PASS}\n"
+                "blocking_count: 1\n"
+                "advisory_count: 0\n"
+                f"{REVIEW_RESULT_BLOCK_END}"
+            ),
+            session_id=None,
+        )
+
+
+def test_review_strategy_fails_closed_on_invalid_result_block(tmp_path: Path) -> None:
+    store = RunStore(base_dir=tmp_path)
+    store.start_run({})
+    reqs = tmp_path / "requirements.md"
+    reqs.write_text("# R\n")
+    cfg = ProjectConfig(changed_files=["src/foo.py"])
+    strategy = ReviewStrategy(_MalformedResultRunner())
+    result = strategy.run(
+        requirements_file=reqs,
+        store=store,
+        iteration=1,
+        config=cfg,
+        timeout=30,
+        max_retries=1,
+        logger=Logger(),
+    )
+    assert result.passed is False
+    assert "verdict: pass" in result.feedback
 
 
 def test_run_triangular_verification_delegates_to_strategy(tmp_path: Path) -> None:
