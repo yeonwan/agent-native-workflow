@@ -259,7 +259,7 @@ def agent_config_for(
     if cli_provider == "copilot":
         if is_blacklist:
             agent_a_perms = AgentPermissions(
-                allowed_tools=[],
+                allowed_tools=["read", "write", "edit", "grep", "glob", "shell"],
                 denied_tools=default_denied_tools("copilot"),
                 permission_mode="",
                 model=models["agent_a"],
@@ -292,8 +292,11 @@ def agent_config_for(
 
     # Claude / codex / cursor
     if is_blacklist:
+        # Allow broad tool categories, then deny specific patterns.
+        # Without --allowedTools, Claude CLI blocks all tools even with
+        # bypassPermissions — "Bash" alone covers all Bash(cmd:*) patterns.
         agent_a_perms = AgentPermissions(
-            allowed_tools=[],
+            allowed_tools=["Bash", "Read", "Edit", "Write", "Grep", "Glob"],
             denied_tools=default_denied_tools(cli_provider),
             permission_mode="bypassPermissions",
             model=models["agent_a"],

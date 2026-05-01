@@ -126,13 +126,16 @@ def test_claude_copilot_deny_lists_same_length() -> None:
 def test_agent_config_for_blacklist_claude_agent_a_has_denied_tools() -> None:
     cfg = agent_config_for("python", "claude", permission_strategy="blacklist")
     assert cfg.agent_a.denied_tools == default_denied_tools("claude")
-    assert cfg.agent_a.allowed_tools == []
+    # Broad categories allow all tools; deny list carves out exceptions
+    assert "Bash" in cfg.agent_a.allowed_tools
+    assert "Read" in cfg.agent_a.allowed_tools
 
 
 def test_agent_config_for_blacklist_copilot_agent_a_has_denied_tools() -> None:
     cfg = agent_config_for("python", "copilot", permission_strategy="blacklist")
     assert cfg.agent_a.denied_tools == default_denied_tools("copilot")
-    assert cfg.agent_a.allowed_tools == []
+    assert "shell" in cfg.agent_a.allowed_tools
+    assert "read" in cfg.agent_a.allowed_tools
 
 
 def test_agent_config_for_blacklist_agent_r_keeps_whitelist() -> None:
@@ -158,6 +161,8 @@ def test_agent_config_for_whitelist_has_no_denied_tools() -> None:
     cfg = agent_config_for("python", "claude", permission_strategy="whitelist")
     assert cfg.agent_a.denied_tools == []
     assert cfg.agent_a.allowed_tools != []
+    # Whitelist should have specific tool patterns, not broad "Bash"
+    assert "Bash" not in cfg.agent_a.allowed_tools
 
 
 def test_agent_config_for_blacklist_codex_empty_denied() -> None:
