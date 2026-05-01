@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import signal
+import subprocess as _sp
 import threading
 import time
 from collections.abc import Callable
@@ -14,7 +15,6 @@ from agent_native_workflow.detect import (
     files_changed_since,
     snapshot_working_tree,
 )
-from agent_native_workflow.notify import send_notification
 from agent_native_workflow.domain import (
     GateStatus,
     IterationMetrics,
@@ -23,15 +23,102 @@ from agent_native_workflow.domain import (
 )
 from agent_native_workflow.gates import run_quality_gates
 from agent_native_workflow.log import Logger
+from agent_native_workflow.notify import send_notification
 from agent_native_workflow.prompt_loader import load_prompt, load_prompt_title
-from agent_native_workflow.requirements_loader import is_text_format, load_requirements
+from agent_native_workflow.requirements_loader import (
+    is_text_format,
+    load_requirements,
+)
 from agent_native_workflow.runners.base import AgentRunner
 from agent_native_workflow.runners.copilot import apply_text_output
 from agent_native_workflow.runners.factory import runner_for
 from agent_native_workflow.store import RunStore
-from agent_native_workflow.strategies.factory import build_verification_strategy
-from agent_native_workflow.visualization.base import PipelinePhase, Visualizer
+from agent_native_workflow.strategies.factory import (
+    build_verification_strategy,
+)
+from agent_native_workflow.visualization.base import (
+    PipelinePhase,
+    Visualizer,
+)
 from agent_native_workflow.visualization.plain import PlainVisualizer
+
+
+def _get_head_hash() -> str:
+    """Return current HEAD commit hash, or empty string."""
+    try:
+        r = _sp.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except (_sp.SubprocessError, FileNotFoundError):
+        return ""
+
+
+def _audit_post_phase1(
+    before_head: str,
+    before_snapshot: dict[str, str],
+    logger: Logger,
+) -> None:
+    """Post-execution audit: revert commits + detect file deletions."""
+    # 1. Unauthorized commit detection
+    after_head = _get_head_hash()
+    if before_head and after_head and after_head != before_head:
+        logger.warn(
+            f"[Audit] Unauthorized commit detected: "
+            f"{after_head[:8]}. Reverting to {before_head[:8]}."
+        )
+        _sp.run(
+            ["git", "reset", "--soft", before_head],
+            capture_output=True, timeout=10,
+        )
+
+    # 2. Unexpected file deletion detection
+    after_snapshot = snapshot_working_tree()
+    deleted: list[str] = []
+    for entry in before_snapshot:
+        status_code = entry[:2]
+        # Files already deleted/staged-delete before Agent A: skip
+        if "D" in status_code:
+            continue
+        filepath = entry[3:].split(" -> ")[-1].strip()
+        # Check if file existed in before_snapshot but is now gone
+        if entry not in after_snapshot:
+            # Entry disappeared — might be deleted or status changed
+            # Look for a D-status entry for the same path
+            for after_entry in after_snapshot:
+                if "D" in after_entry[:2]:
+                    after_path = after_entry[3:].strip()
+                    if after_path == filepath:
+                        deleted.append(filepath)
+                        break
+    if deleted:
+        files_str = ", ".join(deleted[:10])
+        logger.warn(
+            f"[Audit] {len(deleted)} unexpected file "
+            f"deletion(s) detected: {files_str}"
+        )
+
+    # 3. Sensitive file modification detection
+    _SENSITIVE_PATTERNS = (
+        ".env", ".git/config", ".gitconfig",
+        ".ssh/", ".npmrc", ".pypirc",
+    )
+    all_changed: set[str] = set()
+    for entry, hash_after in after_snapshot.items():
+        hash_before = before_snapshot.get(entry)
+        if hash_before is None or hash_before != hash_after:
+            path = entry[3:].split(" -> ")[-1].strip()
+            all_changed.add(path)
+    sensitive_touched = [
+        f for f in all_changed
+        if any(f == p or f.startswith(p) for p in _SENSITIVE_PATTERNS)
+    ]
+    if sensitive_touched:
+        logger.warn(
+            f"[Audit] Sensitive file(s) modified: "
+            f"{', '.join(sensitive_touched)}"
+        )
 
 
 def _run_implementation_phase(
@@ -44,6 +131,7 @@ def _run_implementation_phase(
     timeout: int,
     max_retries: int,
     logger: Logger,
+    project_type: str = "",
     session_id: str | None = None,
     on_output: Callable[[str], None] | None = None,
 ) -> str | None:
@@ -69,6 +157,25 @@ def _run_implementation_phase(
         "> - When done, output `LOOP_COMPLETE` on its own line.\n\n"
     )
 
+    # JVM projects: guide Agent A to introspect binary dependencies
+    _JVM_DEPENDENCY_HINT = (
+        "> **JVM Dependency Introspection** — When the requirements "
+        "reference classes\n"
+        "> from external libraries (JARs) that you cannot read as "
+        "source code:\n"
+        "> 1. Find the JAR: `find ~/.gradle/caches "
+        "~/.m2/repository -name '<artifact>*.jar' "
+        "-not -name '*sources*' 2>/dev/null | head -5`\n"
+        "> 2. List classes: `jar tf <path>.jar "
+        "| grep '\\.class$' | head -30`\n"
+        "> 3. Inspect a class: `javap -public "
+        "-classpath <path>.jar <ClassName>`\n"
+        "> 4. Use these signatures to write correct code "
+        "— do NOT guess field names or method signatures.\n"
+        "> Do this BEFORE writing code that depends on "
+        "external library classes.\n\n"
+    )
+
     effective_prompt_file = prompt_file if (prompt_file and prompt_file.is_file()) else None
 
     if iteration == 1:
@@ -82,7 +189,10 @@ def _run_implementation_phase(
         source_file = effective_prompt_file or requirements_file
         prompt_text = store.build_agent_a_context(iteration, source_file)
 
-    prompt_text = _AGENT_A_SYSTEM.format(requirements_file=requirements_file) + prompt_text
+    system_text = _AGENT_A_SYSTEM.format(requirements_file=requirements_file)
+    if project_type.startswith("java"):
+        system_text += _JVM_DEPENDENCY_HINT
+    prompt_text = system_text + prompt_text
 
     run_result = runner.run(
         prompt_text,
@@ -149,9 +259,35 @@ def run_pipeline(
         store = RunStore(base_dir=Path(".agent-native-workflow"))
 
     # Build runner (all agents use same provider)
-    from agent_native_workflow.domain import AgentConfig
+    from agent_native_workflow.domain import AgentConfig, agent_config_for
 
-    agent_cfg = wcfg.agent_config or AgentConfig()
+    # Deferred warnings — logged after logger is initialised (line ~354)
+    _deferred_warnings: list[str] = []
+
+    if wcfg.permission_strategy == "blacklist":
+        # Blacklist mode: regenerate Agent A config with denied_tools
+        detected_type = (config or detect_all(base_branch=wcfg.base_branch)).project_type
+        blacklist_cfg = agent_config_for(
+            detected_type, wcfg.cli_provider, permission_strategy="blacklist"
+        )
+        # Merge: keep user overrides (model, timeout) but use blacklist permissions
+        base_cfg = wcfg.agent_config or AgentConfig()
+        base_cfg.agent_a.allowed_tools = blacklist_cfg.agent_a.allowed_tools
+        base_cfg.agent_a.denied_tools = blacklist_cfg.agent_a.denied_tools
+        agent_cfg = base_cfg
+        if not agent_cfg.agent_a.denied_tools:
+            _deferred_warnings.append(
+                "[Config] denied-tools is empty — Agent A has "
+                "unrestricted access (git commit, rm, curl, etc.)"
+            )
+        if wcfg.cli_provider in ("codex", "cursor"):
+            _deferred_warnings.append(
+                f"[Config] {wcfg.cli_provider} does not support "
+                "deny flags — blacklist rules will not be "
+                "enforced at CLI level. Audit still active."
+            )
+    else:
+        agent_cfg = wcfg.agent_config or AgentConfig()
 
     def _model_for(perms_model: str, global_override: str) -> dict[str, object]:
         """Resolve model: CLI flag > config.yaml agents > provider default."""
@@ -162,6 +298,7 @@ def run_pipeline(
         runner = runner_for(
             wcfg.cli_provider,
             allowed_tools=agent_cfg.agent_a.allowed_tools,
+            denied_tools=agent_cfg.agent_a.denied_tools,
             permission_mode=agent_cfg.agent_a.permission_mode,
             **_model_for(agent_cfg.agent_a.model, wcfg.model),
         )
@@ -226,6 +363,10 @@ def run_pipeline(
     # Wire logger → visualizer so TUI log panel receives messages
     logger.set_log_callback(visualizer.on_log)
 
+    # Flush deferred warnings (collected before logger was ready)
+    for _w in _deferred_warnings:
+        logger.warn(_w)
+
     cfg = config or detect_all(base_branch=wcfg.base_branch)
     # Apply explicit command overrides from config file / env vars
     if wcfg.lint_cmd:
@@ -273,6 +414,9 @@ def run_pipeline(
     logger.info(cfg.print_config())
     logger.info(f"Max iterations: {max_iterations}")
     logger.info(f"Verification: {wcfg.verification}")
+    logger.info(f"Permission strategy: {wcfg.permission_strategy}")
+    if wcfg.permission_strategy == "blacklist":
+        logger.info(f"Denied tools: {len(agent_cfg.agent_a.denied_tools)} rules")
     if wcfg.advisory_iterations > 0:
         logger.info(f"Advisory iterations: {wcfg.advisory_iterations}")
     logger.info(f"Prompt: {prompt_file}")
@@ -305,8 +449,9 @@ def run_pipeline(
             logger.phase_start("phase1_implement", iteration=iteration)
             visualizer.on_phase_start(PipelinePhase.IMPLEMENT)
 
-            # Snapshot working tree before Agent A so we can track exactly what it changed
+            # Snapshot working tree + commit hash before Agent A
             before_snapshot = snapshot_working_tree()
+            before_head = _get_head_hash()
 
             new_session_id = _run_implementation_phase(
                 iteration=iteration,
@@ -317,6 +462,7 @@ def run_pipeline(
                 timeout=timeout_a,
                 max_retries=max_retries,
                 logger=logger,
+                project_type=cfg.project_type,
                 session_id=agent_a_session,
                 on_output=visualizer.on_agent_stream,
             )
@@ -339,6 +485,10 @@ def run_pipeline(
                 )
 
             iter_metrics.phase1_done = True
+
+            # ── Post-execution audit (blacklist safety net) ──────────────
+            if wcfg.permission_strategy == "blacklist":
+                _audit_post_phase1(before_head, before_snapshot, logger)
 
             # ── No-progress handling ─────────────────────────────────────────
             if consecutive_no_change >= 2:

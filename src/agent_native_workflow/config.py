@@ -23,6 +23,7 @@ _KEY_MAP: dict[str, str] = {
     "verification": "verification",
     "advisory-iterations": "advisory_iterations",
     "notify": "notify",
+    "permission-strategy": "permission_strategy",
 }
 
 _ENV_MAP: dict[str, str] = {
@@ -42,6 +43,7 @@ _ENV_MAP: dict[str, str] = {
     "VERIFICATION": "verification",
     "ADVISORY_ITERATIONS": "advisory_iterations",
     "ANW_NOTIFY": "notify",
+    "PERMISSION_STRATEGY": "permission_strategy",
 }
 
 _INT_FIELDS = {"max_iterations", "timeout", "max_retries", "advisory_iterations"}
@@ -83,6 +85,7 @@ def _read_toml(path: Path) -> dict[str, object]:
 def _clone_permissions(perms: AgentPermissions) -> AgentPermissions:
     return AgentPermissions(
         allowed_tools=list(perms.allowed_tools),
+        denied_tools=list(perms.denied_tools),
         permission_mode=perms.permission_mode,
         model=perms.model,
         timeout=perms.timeout,
@@ -95,10 +98,14 @@ def _merge_agent(raw: object, fallback: AgentPermissions) -> AgentPermissions:
     tools = raw.get("allowed_tools")
     if tools is None:
         tools = fallback.allowed_tools
+    denied = raw.get("denied_tools")
+    if denied is None:
+        denied = fallback.denied_tools
     raw_timeout = raw.get("timeout")
     timeout = int(raw_timeout) if raw_timeout is not None else fallback.timeout
     return AgentPermissions(
         allowed_tools=list(tools),  # type: ignore[arg-type]
+        denied_tools=list(denied),  # type: ignore[arg-type]
         permission_mode=str(raw.get("permission_mode", fallback.permission_mode)),
         model=str(raw.get("model", fallback.model)),
         timeout=timeout,
@@ -151,6 +158,9 @@ class WorkflowConfig:
 
     # Desktop notifications
     notify: bool = True
+
+    # Permission strategy: "whitelist" (default) | "blacklist"
+    permission_strategy: str = "whitelist"
 
     agent_config: AgentConfig | None = field(default=None, repr=False)
 

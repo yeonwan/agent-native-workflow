@@ -132,6 +132,13 @@ verification: review
 # to Agent A up to N times before accepting. Default: 1 advisory retry.
 advisory-iterations: 1
 
+# Permission strategy for Agent A.
+# Options: whitelist, blacklist
+#   whitelist  — only explicitly listed tools are allowed (strict, default)
+#   blacklist  — all tools allowed except denied list (flexible, recommended)
+#                Uses CLI-level --disallowedTools/--deny-tool for hard blocking.
+permission-strategy: blacklist
+
 # Quality gate commands (auto-detected from project type: {project_type}).
 # Edit or remove to override.
 {lint_hint}

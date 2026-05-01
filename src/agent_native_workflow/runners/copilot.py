@@ -49,11 +49,13 @@ class GitHubCopilotRunner:
         *,
         model: str = "",
         allowed_tools: list[str] | None = None,
+        denied_tools: list[str] | None = None,
         permission_mode: str | None = None,  # ignored, copilot-native
         **_kwargs: object,
     ) -> None:
         self._model = model
         self._allowed_tools = list(allowed_tools or [])
+        self._denied_tools = list(denied_tools or [])
 
     def run(
         self,
@@ -78,6 +80,11 @@ class GitHubCopilotRunner:
 
                 for tool in self._allowed_tools:
                     cmd.append(f"--allow-tool={tool}")
+                for tool in self._denied_tools:
+                    cmd.append(f"--deny-tool={tool}")
+
+                if not self._allowed_tools and not self._denied_tools:
+                    cmd.append("--allow-all-tools")
 
                 proc = subprocess.Popen(
                     cmd,

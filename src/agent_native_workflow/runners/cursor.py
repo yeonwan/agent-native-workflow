@@ -21,7 +21,7 @@ class CursorRunner:
     supports_resume = False
     experimental = True
 
-    def __init__(self, *, model: str = "") -> None:
+    def __init__(self, *, model: str = "", **_kwargs: object) -> None:
         self._model = model
 
     def run(

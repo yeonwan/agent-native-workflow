@@ -144,11 +144,13 @@ class ClaudeCodeRunner:
         *,
         model: str = "",
         allowed_tools: list[str] | None = None,
+        denied_tools: list[str] | None = None,
         permission_mode: str = "bypassPermissions",
         **_kwargs: object,
     ) -> None:
         self._model = model
         self._allowed_tools = allowed_tools or []
+        self._denied_tools = denied_tools or []
         self._permission_mode = permission_mode
 
     def run(
@@ -185,6 +187,8 @@ class ClaudeCodeRunner:
 
                 if self._allowed_tools:
                     cmd.extend(["--allowedTools", *self._allowed_tools])
+                if self._denied_tools:
+                    cmd.extend(["--disallowedTools", *self._denied_tools])
 
                 if self._model:
                     cmd.extend(["--model", self._model])

@@ -20,7 +20,7 @@ class OpenAICodexRunner:
     supports_file_tools = True
     supports_resume = False
 
-    def __init__(self, *, model: str = "") -> None:
+    def __init__(self, *, model: str = "", **_kwargs: object) -> None:
         self._model = model
 
     def run(

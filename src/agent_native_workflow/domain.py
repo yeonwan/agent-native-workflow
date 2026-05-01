@@ -25,12 +25,15 @@ class AgentPermissions:
     """Permissions for a specific agent (A, R, B, or C)."""
 
     allowed_tools: list[str] = field(default_factory=list)
+    denied_tools: list[str] = field(default_factory=list)
     permission_mode: str = "bypassPermissions"
     model: str = ""
     timeout: int | None = None  # seconds; None = use global WorkflowConfig.timeout
 
     def to_dict(self) -> dict[str, object]:
         d: dict[str, object] = {"allowed_tools": self.allowed_tools}
+        if self.denied_tools:
+            d["denied_tools"] = self.denied_tools
         if self.permission_mode:
             d["permission_mode"] = self.permission_mode
         # Always include model so users can see and edit it, even when empty.
@@ -64,8 +67,14 @@ _AGENT_A_BUILD_TOOLS: dict[str, list[str]] = {
     "node": ["Bash(npm:*)", "Bash(npx:*)", "Bash(yarn:*)", "Bash(make:*)"],
     "rust": ["Bash(cargo:*)", "Bash(make:*)"],
     "go": ["Bash(go:*)", "Bash(make:*)"],
-    "java-maven": ["Bash(mvn:*)", "Bash(make:*)"],
-    "java-gradle": ["Bash(./gradlew compileJava)"],
+    "java-maven": [
+        "Bash(mvn:*)", "Bash(make:*)", "Bash(javap:*)",
+        "Bash(jar:*)", "Bash(strings:*)", "Bash(find:*)",
+    ],
+    "java-gradle": [
+        "Bash(./gradlew:*)", "Bash(make:*)", "Bash(javap:*)",
+        "Bash(jar:*)", "Bash(strings:*)", "Bash(find:*)",
+    ],
 }
 
 # ── GitHub Copilot CLI tool definitions ───────────────────────────────────────
@@ -87,12 +96,120 @@ _COPILOT_AGENT_A_BUILD_TOOLS: dict[str, list[str]] = {
     "node": ["shell(npm:*)", "shell(npx:*)", "shell(yarn:*)", "shell(make:*)"],
     "rust": ["shell(cargo:*)", "shell(make:*)"],
     "go": ["shell(go:*)", "shell(make:*)"],
-    "java-maven": ["shell(mvn:*)", "shell(make:*)"],
-    "java-gradle": ["shell(./gradlew compileJava)"],
+    "java-maven": [
+        "shell(mvn:*)", "shell(make:*)", "shell(javap:*)",
+        "shell(jar:*)", "shell(strings:*)", "shell(find:*)",
+    ],
+    "java-gradle": [
+        "shell(./gradlew:*)", "shell(make:*)", "shell(javap:*)",
+        "shell(jar:*)", "shell(strings:*)", "shell(find:*)",
+    ],
 }
 _COPILOT_AGENT_R_TOOLS = ["read", "grep", "glob", "shell(git diff)", "shell(git log)"]
 _COPILOT_AGENT_B_TOOLS = ["read", "grep", "glob", "shell(git diff)", "shell(git log)"]
 _COPILOT_AGENT_C_TOOLS: list[str] = ["read"]
+
+# ── Blacklist mode: default denied tools ─────────────────────────────────────
+# CLI-level hard block. deny > allow when both are specified.
+# Pattern syntax:
+#   Claude:  Bash(command_prefix:arg_glob)  — colon + glob required
+#   Copilot: shell(command_prefix)          — prefix matching, no colon needed
+
+_CLAUDE_DEFAULT_DENIED = [
+    # Git write operations — pipeline manages git state
+    "Bash(git commit:*)",
+    "Bash(git push:*)",
+    "Bash(git checkout:*)",
+    "Bash(git reset:*)",
+    "Bash(git rebase:*)",
+    "Bash(git merge:*)",
+    "Bash(git stash:*)",
+    "Bash(git branch -d:*)",
+    "Bash(git branch -D:*)",
+    "Bash(git tag:*)",
+    # Destructive file operations
+    "Bash(rm:*)",
+    "Bash(rmdir:*)",
+    # Network — no exfiltration
+    "Bash(curl:*)",
+    "Bash(wget:*)",
+    "Bash(ssh:*)",
+    "Bash(scp:*)",
+    "Bash(rsync:*)",
+    # Package publishing
+    "Bash(npm publish:*)",
+    "Bash(twine:*)",
+    "Bash(cargo publish:*)",
+    "Bash(mvn deploy:*)",
+    # Process/system
+    "Bash(kill:*)",
+    "Bash(killall:*)",
+    "Bash(shutdown:*)",
+    "Bash(reboot:*)",
+    # Permission escalation
+    "Bash(sudo:*)",
+    "Bash(chmod:*)",
+    "Bash(chown:*)",
+    # Environment manipulation
+    # NOTE: export is a shell builtin — pattern only matches when export is
+    # the first token (e.g. `export FOO=bar`).  Inline usage like
+    # `sh -c "export ..."` may bypass this.  Best-effort; audit catches rest.
+    "Bash(env:*)",
+    "Bash(export:*)",
+]
+
+_COPILOT_DEFAULT_DENIED = [
+    # Git write operations
+    "shell(git commit)",
+    "shell(git push)",
+    "shell(git checkout)",
+    "shell(git reset)",
+    "shell(git rebase)",
+    "shell(git merge)",
+    "shell(git stash)",
+    "shell(git branch -d)",
+    "shell(git branch -D)",
+    "shell(git tag)",
+    # Destructive file operations
+    "shell(rm)",
+    "shell(rmdir)",
+    # Network
+    "shell(curl)",
+    "shell(wget)",
+    "shell(ssh)",
+    "shell(scp)",
+    "shell(rsync)",
+    # Package publishing
+    "shell(npm publish)",
+    "shell(twine)",
+    "shell(cargo publish)",
+    "shell(mvn deploy)",
+    # Process/system
+    "shell(kill)",
+    "shell(killall)",
+    "shell(shutdown)",
+    "shell(reboot)",
+    # Permission escalation
+    "shell(sudo)",
+    "shell(chmod)",
+    "shell(chown)",
+    # Environment manipulation (best-effort; see Claude note above)
+    "shell(env)",
+    "shell(export)",
+]
+
+_DEFAULT_DENIED: dict[str, list[str]] = {
+    "claude": _CLAUDE_DEFAULT_DENIED,
+    "copilot": _COPILOT_DEFAULT_DENIED,
+    "codex": [],   # codex/cursor: no deny flag support — whitelist fallback
+    "cursor": [],
+}
+
+
+def default_denied_tools(cli_provider: str) -> list[str]:
+    """Return the default deny list for the given CLI provider."""
+    return list(_DEFAULT_DENIED.get(cli_provider, []))
+
 
 # Default models per CLI provider for each agent role.
 # Empty string = let the provider choose its default.
@@ -124,24 +241,38 @@ _DEFAULT_MODELS: dict[str, dict[str, str]] = {
 }
 
 
-def agent_config_for(project_type: str, cli_provider: str = "claude") -> AgentConfig:
-    """Build an AgentConfig with allowed tools and default models for the given CLI provider.
+def agent_config_for(
+    project_type: str,
+    cli_provider: str = "claude",
+    permission_strategy: str = "whitelist",
+) -> AgentConfig:
+    """Build AgentConfig with allowed/denied tools and models.
 
-    Agent A gets base tools + build/test tools specific to the project type.
-    Agent R gets read-only tools for ``verification: review``.
-    Agent B/C get triangulation roles (blind review + PM judge).
+    Args:
+        permission_strategy: "whitelist" — Agent A gets allowed_tools.
+            "blacklist" — Agent A gets denied_tools only.
+            Agent R/B/C always use whitelist regardless.
     """
     models = _DEFAULT_MODELS.get(cli_provider, _DEFAULT_MODELS["claude"])
+    is_blacklist = permission_strategy == "blacklist"
 
     if cli_provider == "copilot":
-        build_tools = _COPILOT_AGENT_A_BUILD_TOOLS.get(project_type, ["shell(make:*)"])
-        agent_a_tools = _COPILOT_AGENT_A_BASE + build_tools
-        return AgentConfig(
-            agent_a=AgentPermissions(
-                allowed_tools=agent_a_tools,
+        if is_blacklist:
+            agent_a_perms = AgentPermissions(
+                allowed_tools=[],
+                denied_tools=default_denied_tools("copilot"),
                 permission_mode="",
                 model=models["agent_a"],
-            ),
+            )
+        else:
+            build_tools = _COPILOT_AGENT_A_BUILD_TOOLS.get(project_type, ["shell(make:*)"])
+            agent_a_perms = AgentPermissions(
+                allowed_tools=_COPILOT_AGENT_A_BASE + build_tools,
+                permission_mode="",
+                model=models["agent_a"],
+            )
+        return AgentConfig(
+            agent_a=agent_a_perms,
             agent_r=AgentPermissions(
                 allowed_tools=_COPILOT_AGENT_R_TOOLS,
                 permission_mode="",
@@ -159,15 +290,24 @@ def agent_config_for(project_type: str, cli_provider: str = "claude") -> AgentCo
             ),
         )
 
-    build_tools = _AGENT_A_BUILD_TOOLS.get(project_type, ["Bash(make:*)"])
-    agent_a_tools = _AGENT_A_BASE + build_tools
-
-    return AgentConfig(
-        agent_a=AgentPermissions(
-            allowed_tools=agent_a_tools,
+    # Claude / codex / cursor
+    if is_blacklist:
+        agent_a_perms = AgentPermissions(
+            allowed_tools=[],
+            denied_tools=default_denied_tools(cli_provider),
             permission_mode="bypassPermissions",
             model=models["agent_a"],
-        ),
+        )
+    else:
+        build_tools = _AGENT_A_BUILD_TOOLS.get(project_type, ["Bash(make:*)"])
+        agent_a_perms = AgentPermissions(
+            allowed_tools=_AGENT_A_BASE + build_tools,
+            permission_mode="bypassPermissions",
+            model=models["agent_a"],
+        )
+
+    return AgentConfig(
+        agent_a=agent_a_perms,
         agent_r=AgentPermissions(
             allowed_tools=_AGENT_R_TOOLS,
             permission_mode="bypassPermissions",
@@ -247,7 +387,6 @@ class AgentConfig:
         prefix = " " * base_indent
 
         def _agent_block(name: str, perms: AgentPermissions, timeout_hint: str) -> str:
-            tools_lines = "\n".join(f"{prefix}    - {t}" for t in perms.allowed_tools)
             model_line = (
                 f"{prefix}  model: {perms.model}" if perms.model else f"{prefix}  # model: "
             )
@@ -259,13 +398,21 @@ class AgentConfig:
                     "# seconds; overrides global timeout"
                 )
             )
-            return (
-                f"{prefix}{name}:\n"
-                f"{prefix}  allowed_tools:\n"
-                f"{tools_lines}\n"
-                f"{model_line}\n"
-                f"{timeout_line}"
-            )
+            lines = f"{prefix}{name}:\n"
+            if perms.allowed_tools:
+                tools = "\n".join(
+                    f"{prefix}    - {t}" for t in perms.allowed_tools
+                )
+                lines += f"{prefix}  allowed_tools:\n{tools}\n"
+            if perms.denied_tools:
+                denied = "\n".join(
+                    f"{prefix}    - {t}" for t in perms.denied_tools
+                )
+                lines += f"{prefix}  denied_tools:\n{denied}\n"
+            if not perms.allowed_tools and not perms.denied_tools:
+                lines += f"{prefix}  allowed_tools: []  # blacklist mode\n"
+            lines += f"{model_line}\n{timeout_line}"
+            return lines
 
         return [
             _agent_block("agent_a", self.agent_a, "300"),
