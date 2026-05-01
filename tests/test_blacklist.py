@@ -332,43 +332,39 @@ def test_runner_for_cursor_ignores_denied_tools() -> None:
     assert not hasattr(runner, "_denied_tools")
 
 
-# ── Config: permission-strategy resolution ───────────────────────────────────
+# ── Config: blacklist inferred from denied_tools ─────────────────────────────
 
 
-def test_config_permission_strategy_default() -> None:
-    from agent_native_workflow.config import WorkflowConfig
-    cfg = WorkflowConfig()
-    assert cfg.permission_strategy == "whitelist"
-
-
-def test_config_permission_strategy_from_yaml(tmp_path: Path) -> None:
+def test_config_blacklist_inferred_when_denied_tools_present(tmp_path: Path) -> None:
+    """No permission-strategy field needed — denied_tools presence = blacklist."""
     from agent_native_workflow.config import WorkflowConfig
     cfg_dir = tmp_path / ".agent-native-workflow"
     cfg_dir.mkdir()
-    (cfg_dir / "config.yaml").write_text("permission-strategy: blacklist\n")
-    cfg = WorkflowConfig.resolve(project_root=tmp_path)
-    assert cfg.permission_strategy == "blacklist"
-
-
-def test_config_permission_strategy_from_env(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from agent_native_workflow.config import WorkflowConfig
-    monkeypatch.setenv("PERMISSION_STRATEGY", "blacklist")
-    cfg = WorkflowConfig.resolve(project_root=tmp_path)
-    assert cfg.permission_strategy == "blacklist"
-
-
-def test_config_explicit_overrides_env(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from agent_native_workflow.config import WorkflowConfig
-    monkeypatch.setenv("PERMISSION_STRATEGY", "blacklist")
-    cfg = WorkflowConfig.resolve(
-        explicit={"permission_strategy": "whitelist"},
-        project_root=tmp_path,
+    (cfg_dir / "config.yaml").write_text(
+        "agents:\n"
+        "  agent_a:\n"
+        "    denied_tools:\n"
+        '      - "Bash(rm:*)"\n'
     )
-    assert cfg.permission_strategy == "whitelist"
+    cfg = WorkflowConfig.resolve(project_root=tmp_path)
+    assert cfg.agent_config is not None
+    assert cfg.agent_config.agent_a.denied_tools == ["Bash(rm:*)"]
+
+
+def test_config_whitelist_when_no_denied_tools(tmp_path: Path) -> None:
+    from agent_native_workflow.config import WorkflowConfig
+    cfg_dir = tmp_path / ".agent-native-workflow"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.yaml").write_text(
+        "agents:\n"
+        "  agent_a:\n"
+        "    allowed_tools:\n"
+        "      - Read\n"
+    )
+    cfg = WorkflowConfig.resolve(project_root=tmp_path)
+    assert cfg.agent_config is not None
+    assert cfg.agent_config.agent_a.denied_tools == []
+    assert cfg.agent_config.agent_a.allowed_tools == ["Read"]
 
 
 # ── Config: denied_tools in agent config ─────────────────────────────────────

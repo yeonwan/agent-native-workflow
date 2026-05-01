@@ -264,30 +264,15 @@ def run_pipeline(
     # Deferred warnings — logged after logger is initialised (line ~354)
     _deferred_warnings: list[str] = []
 
-    if wcfg.permission_strategy == "blacklist":
-        # Blacklist mode: regenerate Agent A config with denied_tools
-        detected_type = (config or detect_all(base_branch=wcfg.base_branch)).project_type
-        blacklist_cfg = agent_config_for(
-            detected_type, wcfg.cli_provider, permission_strategy="blacklist"
+    agent_cfg = wcfg.agent_config or AgentConfig()
+    is_blacklist = bool(agent_cfg.agent_a.denied_tools)
+
+    if is_blacklist and wcfg.cli_provider in ("codex", "cursor"):
+        _deferred_warnings.append(
+            f"[Config] {wcfg.cli_provider} does not support "
+            "deny flags — blacklist rules will not be "
+            "enforced at CLI level. Audit still active."
         )
-        # Merge: keep user overrides (model, timeout) but use blacklist permissions
-        base_cfg = wcfg.agent_config or AgentConfig()
-        base_cfg.agent_a.allowed_tools = blacklist_cfg.agent_a.allowed_tools
-        base_cfg.agent_a.denied_tools = blacklist_cfg.agent_a.denied_tools
-        agent_cfg = base_cfg
-        if not agent_cfg.agent_a.denied_tools:
-            _deferred_warnings.append(
-                "[Config] denied-tools is empty — Agent A has "
-                "unrestricted access (git commit, rm, curl, etc.)"
-            )
-        if wcfg.cli_provider in ("codex", "cursor"):
-            _deferred_warnings.append(
-                f"[Config] {wcfg.cli_provider} does not support "
-                "deny flags — blacklist rules will not be "
-                "enforced at CLI level. Audit still active."
-            )
-    else:
-        agent_cfg = wcfg.agent_config or AgentConfig()
 
     def _model_for(perms_model: str, global_override: str) -> dict[str, object]:
         """Resolve model: CLI flag > config.yaml agents > provider default."""
@@ -414,9 +399,10 @@ def run_pipeline(
     logger.info(cfg.print_config())
     logger.info(f"Max iterations: {max_iterations}")
     logger.info(f"Verification: {wcfg.verification}")
-    logger.info(f"Permission strategy: {wcfg.permission_strategy}")
-    if wcfg.permission_strategy == "blacklist":
-        logger.info(f"Denied tools: {len(agent_cfg.agent_a.denied_tools)} rules")
+    if is_blacklist:
+        logger.info(f"Permission: blacklist ({len(agent_cfg.agent_a.denied_tools)} deny rules)")
+    else:
+        logger.info(f"Permission: whitelist ({len(agent_cfg.agent_a.allowed_tools)} allow rules)")
     if wcfg.advisory_iterations > 0:
         logger.info(f"Advisory iterations: {wcfg.advisory_iterations}")
     logger.info(f"Prompt: {prompt_file}")
@@ -487,7 +473,7 @@ def run_pipeline(
             iter_metrics.phase1_done = True
 
             # ── Post-execution audit (blacklist safety net) ──────────────
-            if wcfg.permission_strategy == "blacklist":
+            if is_blacklist:
                 _audit_post_phase1(before_head, before_snapshot, logger)
 
             # ── No-progress handling ─────────────────────────────────────────

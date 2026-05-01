@@ -67,7 +67,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     detected = detect_all()
     project_type = detected.project_type
     embedded_agents_yaml = agent_config_for(
-        project_type, cli_provider=cli_provider
+        project_type, cli_provider=cli_provider, permission_strategy="blacklist"
     ).to_embedded_yaml()
 
     if legacy_agent_config_file.exists():

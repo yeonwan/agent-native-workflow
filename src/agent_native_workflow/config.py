@@ -23,7 +23,6 @@ _KEY_MAP: dict[str, str] = {
     "verification": "verification",
     "advisory-iterations": "advisory_iterations",
     "notify": "notify",
-    "permission-strategy": "permission_strategy",
 }
 
 _ENV_MAP: dict[str, str] = {
@@ -43,7 +42,6 @@ _ENV_MAP: dict[str, str] = {
     "VERIFICATION": "verification",
     "ADVISORY_ITERATIONS": "advisory_iterations",
     "ANW_NOTIFY": "notify",
-    "PERMISSION_STRATEGY": "permission_strategy",
 }
 
 _INT_FIELDS = {"max_iterations", "timeout", "max_retries", "advisory_iterations"}
@@ -158,9 +156,6 @@ class WorkflowConfig:
 
     # Desktop notifications
     notify: bool = True
-
-    # Permission strategy: "whitelist" (default) | "blacklist"
-    permission_strategy: str = "whitelist"
 
     agent_config: AgentConfig | None = field(default=None, repr=False)
 
