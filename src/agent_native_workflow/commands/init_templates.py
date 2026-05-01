@@ -80,7 +80,7 @@ REQUIREMENTS_MD = """\
 """
 
 
-CODEREVIEW_MD = """\
+_CODEREVIEW_HEADER = """\
 # Code Review Guidelines
 
 <!--
@@ -89,7 +89,10 @@ CODEREVIEW_MD = """\
   They appear as "Suggestions" in the review output.
   Delete this file if you only want requirements-based review.
 -->
+"""
 
+_CODEREVIEW_BODIES: dict[str, str] = {
+    "python": """
 ## Conventions
 - Follow existing naming patterns in the codebase
 - All public functions must have type hints and a docstring
@@ -102,7 +105,104 @@ CODEREVIEW_MD = """\
 ## Testing
 - Tests must be deterministic (no sleep, no real network)
 - Use fixtures for shared test setup
+""",
+    "node": """
+## Conventions
+- Follow existing naming patterns in the codebase
+- Use TypeScript strict mode — no `any` unless unavoidable
+- Prefer `const` over `let`; never use `var`
+
+## Patterns
+- Use async/await over raw Promises or callbacks
+- Prefer named exports over default exports
+- Use path aliases over deep relative imports (`../../../`)
+
+## Testing
+- Tests must be deterministic (no sleep, no real network)
+- Use `describe`/`it` blocks with clear test names
+""",
+    "rust": """
+## Conventions
+- Follow existing naming patterns in the codebase
+- All public items must have doc comments (`///`)
+- No `unwrap()` or `expect()` in library code — propagate errors with `?`
+
+## Patterns
+- Prefer `impl Trait` over `dyn Trait` where possible
+- Use `thiserror` for custom error types
+- Derive `Debug` on all public structs
+
+## Testing
+- Tests must be deterministic (no sleep, no real network)
+- Use `#[cfg(test)]` module for unit tests
+""",
+    "go": """
+## Conventions
+- Follow existing naming patterns in the codebase
+- Exported functions must have a Go doc comment
+- Always handle errors — no `_ = someFunc()`
+
+## Patterns
+- Use `context.Context` as the first parameter for I/O functions
+- Prefer table-driven tests
+- Use `errors.Is`/`errors.As` over string matching
+
+## Testing
+- Tests must be deterministic (no sleep, no real network)
+- Use `t.Helper()` in test helper functions
+""",
+    "java-maven": """
+## Conventions
+- Follow existing naming patterns in the codebase
+- All public methods must have Javadoc
+- No raw types — always use generics
+
+## Patterns
+- Prefer constructor injection over field injection
+- Use `Optional` instead of returning null
+- Prefer immutable collections where possible
+
+## Testing
+- Tests must be deterministic (no sleep, no real network)
+- Use JUnit 5 with descriptive `@DisplayName`
+""",
+    "java-gradle": """
+## Conventions
+- Follow existing naming patterns in the codebase
+- All public methods must have Javadoc
+- No raw types — always use generics
+
+## Patterns
+- Prefer constructor injection over field injection
+- Use `Optional` instead of returning null
+- Prefer immutable collections where possible
+
+## Testing
+- Tests must be deterministic (no sleep, no real network)
+- Use JUnit 5 with descriptive `@DisplayName`
+""",
+}
+
+_CODEREVIEW_DEFAULT = """
+## Conventions
+- Follow existing naming patterns in the codebase
+- All public functions/methods must be documented
+- Handle errors explicitly — no silent failures
+
+## Patterns
+- Keep functions small and focused
+- Prefer composition over inheritance
+
+## Testing
+- Tests must be deterministic (no sleep, no real network)
+- Cover the happy path and at least one error case
 """
+
+
+def codereview_md(project_type: str) -> str:
+    """Generate codereview.md content tailored to the detected project type."""
+    body = _CODEREVIEW_BODIES.get(project_type, _CODEREVIEW_DEFAULT)
+    return _CODEREVIEW_HEADER + body
 
 
 def config_yaml(

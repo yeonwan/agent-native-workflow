@@ -5,9 +5,9 @@ import re
 from pathlib import Path
 
 from agent_native_workflow.commands.init_templates import (
-    CODEREVIEW_MD,
     PROMPT_YAML,
     REQUIREMENTS_MD,
+    codereview_md,
     config_yaml,
 )
 
@@ -96,7 +96,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     codereview_file = config_dir / "codereview.md"
     if not codereview_file.exists():
-        codereview_file.write_text(CODEREVIEW_MD)
+        codereview_file.write_text(codereview_md(project_type))
         print(f"Created {codereview_file}")
     else:
         print(f"Skipped {codereview_file} (already exists)")
