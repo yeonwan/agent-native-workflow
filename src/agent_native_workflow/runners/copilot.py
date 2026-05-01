@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -11,6 +13,22 @@ from agent_native_workflow.log import Logger
 from agent_native_workflow.runners.base import RunResult
 
 _SHARE_FILE = Path(".agent-native-workflow/copilot-session.md")
+
+
+def _terminate_process(proc: subprocess.Popen[str]) -> None:
+    """Kill the copilot process tree (process group)."""
+    pid = getattr(proc, "pid", None)
+    if os.name != "nt" and pid is not None:
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+        except ProcessLookupError:
+            return
+        except OSError:
+            pass
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        return
 
 
 def _stream_stdout(
@@ -91,6 +109,7 @@ class GitHubCopilotRunner:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
+                    start_new_session=(os.name != "nt"),
                 )
 
                 output_lines: list[str] = []
@@ -102,9 +121,31 @@ class GitHubCopilotRunner:
                 reader.start()
 
                 try:
-                    proc.wait(timeout=timeout)
+                    from agent_native_workflow.pipeline import _shutdown_event
+
+                    deadline = time.monotonic() + timeout
+                    while proc.poll() is None:
+                        if _shutdown_event.is_set():
+                            _terminate_process(proc)
+                            try:
+                                proc.wait(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                pass
+                            reader.join(timeout=5)
+                            raise KeyboardInterrupt("shutdown requested")
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise subprocess.TimeoutExpired(cmd, timeout)
+                        try:
+                            proc.wait(timeout=min(0.5, remaining))
+                        except subprocess.TimeoutExpired:
+                            continue
                 except subprocess.TimeoutExpired:
-                    proc.kill()
+                    _terminate_process(proc)
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        pass
                     reader.join(timeout=5)
                     if logger:
                         logger.warn(f"copilot timed out after {timeout}s (attempt {attempt})")

@@ -42,6 +42,11 @@ from agent_native_workflow.visualization.base import (
 )
 from agent_native_workflow.visualization.plain import PlainVisualizer
 
+# Module-level shutdown event shared between pipeline, UI, and runners.
+# When set, runners should terminate their subprocesses and the pipeline
+# should stop after the current phase.
+_shutdown_event = threading.Event()
+
 
 def _get_head_hash() -> str:
     """Return current HEAD commit hash, or empty string."""
@@ -361,14 +366,13 @@ def run_pipeline(
 
     os.environ.pop("CLAUDECODE", None)
 
-    shutdown_requested = False
+    _shutdown_event.clear()  # reset for this pipeline run
     _signals_installed = False
 
     def _signal_handler(signum: int, _frame: object) -> None:
-        nonlocal shutdown_requested
         sig_name = signal.Signals(signum).name
-        logger.warn(f"Received {sig_name}, will exit after current phase...")
-        shutdown_requested = True
+        logger.warn(f"Received {sig_name}, shutting down...")
+        _shutdown_event.set()
 
     original_sigint = signal.getsignal(signal.SIGINT)
     original_sigterm = signal.getsignal(signal.SIGTERM)
@@ -408,7 +412,7 @@ def run_pipeline(
 
     try:
         for iteration in range(1, max_iterations + 1):
-            if shutdown_requested:
+            if _shutdown_event.is_set():
                 logger.warn("Shutdown requested, stopping pipeline")
                 break
 
@@ -496,7 +500,7 @@ def run_pipeline(
             logger.phase_end("phase1_implement", "completed", iteration=iteration)
             visualizer.on_phase_end(PipelinePhase.IMPLEMENT, "pass")
 
-            if shutdown_requested:
+            if _shutdown_event.is_set():
                 break
 
             # ── Phase 2: Quality Gates ────────────────────────────────────────
@@ -542,7 +546,7 @@ def run_pipeline(
             logger.phase_end("phase2_quality_gates", "pass", iteration=iteration)
             visualizer.on_phase_end(PipelinePhase.QUALITY_GATES, "pass")
 
-            if shutdown_requested:
+            if _shutdown_event.is_set():
                 break
 
             # ── Phase 3: Verification (strategy: none / review / triangulation) ─
@@ -648,7 +652,7 @@ def run_pipeline(
                 logger.info(f"[Phase 3] FAILED — looping back (took {iter_metrics.duration_s}s)")
                 continue
 
-            if shutdown_requested:
+            if _shutdown_event.is_set():
                 break
 
             # ── Convergence ───────────────────────────────────────────────────
@@ -665,6 +669,8 @@ def run_pipeline(
             converged = True
             break
 
+    except KeyboardInterrupt:
+        logger.warn("Pipeline interrupted — cleaning up...")
     except Exception as e:
         # Capture exception to send error notification in finally block
         pipeline_exception = e
@@ -698,7 +704,7 @@ def run_pipeline(
                         title="anw: converged",
                         body=f"Pipeline converged in {metrics.total_iterations} iteration(s), {total_time}s total",
                     )
-                elif shutdown_requested:
+                elif _shutdown_event.is_set():
                     send_notification(
                         title="anw: interrupted",
                         body=f"Pipeline interrupted after {metrics.total_iterations} iteration(s), {total_time}s",

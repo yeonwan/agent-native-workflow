@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import re
+import signal
 import subprocess
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -15,6 +18,21 @@ from agent_native_workflow.log import Logger
 GATE_STORE_OUTPUT_MAX = 200_000
 
 _UNSAFE_PATTERN = re.compile(r"\$\(|`|;\s*rm\s|&&\s*rm\s|>\s*/dev/")
+
+
+def _kill_proc(proc: subprocess.Popen[str]) -> None:
+    """Kill a subprocess and its process group."""
+    pid = getattr(proc, "pid", None)
+    if os.name != "nt" and pid is not None:
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+        except (ProcessLookupError, OSError):
+            pass
+    try:
+        proc.kill()
+        proc.wait(timeout=5)
+    except (ProcessLookupError, subprocess.TimeoutExpired):
+        pass
 
 
 def _is_safe_command(cmd: str) -> bool:
@@ -48,6 +66,7 @@ def run_gate_command(
     try:
         proc = subprocess.Popen(
             cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            start_new_session=(os.name != "nt"),
         )
         lines: list[str] = []
         assert proc.stdout is not None  # guaranteed by PIPE
@@ -55,12 +74,28 @@ def run_gate_command(
             lines.append(line)
             if on_output:
                 on_output(line.rstrip("\n\r"))
-        proc.wait(timeout=timeout)
+
+        from agent_native_workflow.pipeline import _shutdown_event
+
+        deadline = time.monotonic() + timeout
+        while proc.poll() is None:
+            if _shutdown_event.is_set():
+                _kill_proc(proc)
+                raise KeyboardInterrupt("shutdown requested")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(cmd, timeout)
+            try:
+                proc.wait(timeout=min(0.5, remaining))
+            except subprocess.TimeoutExpired:
+                continue
+
         output = "".join(lines)
         return proc.returncode == 0, output
+    except KeyboardInterrupt:
+        raise
     except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
+        _kill_proc(proc)
         msg = f"Command timed out after {timeout}s: {cmd}"
         if on_output:
             on_output(msg)

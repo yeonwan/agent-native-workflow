@@ -70,6 +70,9 @@ def _make_popen(
             self.stdout = iter(f"{line}\n" for line in (lines or _DEFAULT_STREAM))
             self.stderr = _FakeStderr()
 
+        def poll(self) -> int:
+            return self.returncode
+
         def wait(self, timeout: float | None = None) -> int:
             return self.returncode
 
@@ -132,6 +135,9 @@ def test_claude_starts_new_session_for_subprocess() -> None:
             self.pid = 12345
             self.stdout = iter(f"{line}\n" for line in _DEFAULT_STREAM)
             self.stderr = _FakeStderr()
+
+        def poll(self) -> int:
+            return self.returncode
 
         def wait(self, timeout: float | None = None) -> int:
             return self.returncode
@@ -238,6 +244,9 @@ def test_claude_same_session_id_reused_across_retries() -> None:
             self.returncode = fail_then_pass.pop(0)
             self.stdout = iter(f"{line}\n" for line in _DEFAULT_STREAM)
             self.stderr = _FakeStderr()
+
+        def poll(self) -> int:
+            return self.returncode
 
         def wait(self, timeout: float | None = None) -> int:
             return self.returncode
@@ -370,18 +379,23 @@ def test_claude_timeout_kills_process_group_before_retry() -> None:
         def __init__(self, cmd: list[str], **_kw: object) -> None:
             del cmd
             attempts[0] += 1
+            self._attempt = attempts[0]
+            self._finished = self._attempt > 1  # first attempt hangs
             self.returncode = 0
             self.pid = 12345
             self.stdout = iter(())
             self.stderr = _FakeStderr()
 
+        def poll(self) -> int | None:
+            return self.returncode if self._finished else None
+
         def wait(self, timeout: float | None = None) -> int:
-            if attempts[0] == 1 and timeout is not None and timeout < 100:
+            if not self._finished and timeout is not None:
                 raise subprocess.TimeoutExpired("claude", timeout)
             return self.returncode
 
         def kill(self) -> None:
-            pass
+            self._finished = True
 
     with patch("agent_native_workflow.runners.claude.subprocess.Popen", _Popen):
         with patch("agent_native_workflow.runners.claude.os.getpgid", return_value=12345):

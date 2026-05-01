@@ -157,15 +157,19 @@ class PipelineApp(App[None]):
 
     def action_quit(self) -> None:
         """Quit immediately if pipeline is done; otherwise start a countdown."""
+        from agent_native_workflow.pipeline import _shutdown_event
+
         pipeline_done = self._pipeline_done is None or self._pipeline_done.is_set()
         if pipeline_done:
             self.exit()
             return
         if self._quit_countdown > 0:
             # Second q press during countdown → force quit immediately.
+            _shutdown_event.set()
             self.exit()
             return
-        # First q press while pipeline is running → start countdown.
+        # First q press while pipeline is running → signal shutdown + countdown.
+        _shutdown_event.set()
         self._quit_countdown = _QUIT_COUNTDOWN
         self._update_quit_header()
         self.set_interval(1.0, self._countdown_tick, name="quit-countdown")

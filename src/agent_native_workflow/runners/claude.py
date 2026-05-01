@@ -210,7 +210,25 @@ class ClaudeCodeRunner:
                 reader.start()
 
                 try:
-                    proc.wait(timeout=timeout)
+                    from agent_native_workflow.pipeline import _shutdown_event
+
+                    deadline = time.monotonic() + timeout
+                    while proc.poll() is None:
+                        if _shutdown_event.is_set():
+                            _terminate_process(proc)
+                            try:
+                                proc.wait(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                pass
+                            reader.join(timeout=5)
+                            raise KeyboardInterrupt("shutdown requested")
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise subprocess.TimeoutExpired(cmd, timeout)
+                        try:
+                            proc.wait(timeout=min(0.5, remaining))
+                        except subprocess.TimeoutExpired:
+                            continue
                 except subprocess.TimeoutExpired:
                     _terminate_process(proc)
                     try:

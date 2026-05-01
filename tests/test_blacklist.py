@@ -194,6 +194,9 @@ def _make_claude_popen(captured: list[list[str]] | None = None):
             self.stdout = iter(f"{line}\n" for line in _claude_stream())
             self.stderr = _FakeStderr()
 
+        def poll(self) -> int:
+            return self.returncode
+
         def wait(self, timeout: float | None = None) -> int:
             return self.returncode
 
@@ -254,6 +257,9 @@ def _make_copilot_popen(captured: list[list[str]] | None = None):
             self.returncode = 0
             self.stdout = iter(["ok\n"])
             self.stderr = _FakeStderr()
+
+        def poll(self) -> int:
+            return self.returncode
 
         def wait(self, timeout: float | None = None) -> int:
             return self.returncode

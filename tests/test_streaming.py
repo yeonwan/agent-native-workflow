@@ -28,6 +28,9 @@ def _make_streaming_popen(lines: list[str], captured: list[list[str]] | None = N
             self.stdout = iter(f"{line}\n" for line in lines)
             self.stderr = _FakeStderr()
 
+        def poll(self) -> int:
+            return 0
+
         def wait(self, timeout: float | None = None) -> int:
             return 0
 

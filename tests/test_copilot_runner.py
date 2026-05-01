@@ -43,6 +43,9 @@ def _make_popen(captured: list[list[str]] | None = None, returncode: int = 0):
             self.stdout = iter(["ok\n"])
             self.stderr = _FakeStderr()
 
+        def poll(self) -> int:
+            return self.returncode
+
         def wait(self, timeout: float | None = None) -> int:
             return self.returncode
 
