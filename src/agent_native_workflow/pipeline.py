@@ -74,24 +74,12 @@ def _audit_post_phase1(
         )
 
     # 2. Unexpected file deletion detection
+    # Snapshot keys are now file paths (not porcelain lines).
     after_snapshot = snapshot_working_tree()
-    deleted: list[str] = []
-    for entry in before_snapshot:
-        status_code = entry[:2]
-        # Files already deleted/staged-delete before Agent A: skip
-        if "D" in status_code:
-            continue
-        filepath = entry[3:].split(" -> ")[-1].strip()
-        # Check if file existed in before_snapshot but is now gone
-        if entry not in after_snapshot:
-            # Entry disappeared — might be deleted or status changed
-            # Look for a D-status entry for the same path
-            for after_entry in after_snapshot:
-                if "D" in after_entry[:2]:
-                    after_path = after_entry[3:].strip()
-                    if after_path == filepath:
-                        deleted.append(filepath)
-                        break
+    deleted = [
+        fp for fp in before_snapshot
+        if fp not in after_snapshot and before_snapshot[fp] != ""
+    ]
     if deleted:
         files_str = ", ".join(deleted[:10])
         logger.warn(
@@ -105,11 +93,10 @@ def _audit_post_phase1(
         ".ssh/", ".npmrc", ".pypirc",
     )
     all_changed: set[str] = set()
-    for entry, hash_after in after_snapshot.items():
-        hash_before = before_snapshot.get(entry)
+    for filepath, hash_after in after_snapshot.items():
+        hash_before = before_snapshot.get(filepath)
         if hash_before is None or hash_before != hash_after:
-            path = entry[3:].split(" -> ")[-1].strip()
-            all_changed.add(path)
+            all_changed.add(filepath)
     sensitive_touched = [
         f for f in all_changed
         if any(f == p or f.startswith(p) for p in _SENSITIVE_PATTERNS)

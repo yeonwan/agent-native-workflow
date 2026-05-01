@@ -41,8 +41,8 @@ def test_snapshot_includes_modified_file(tmp_path: Path) -> None:
     (tmp_path / "foo.py").write_text("content")
     with patch("agent_native_workflow.detect.subprocess.run", _git_status([" M foo.py"])):
         snap = snapshot_working_tree(tmp_path)
-    assert " M foo.py" in snap
-    assert isinstance(snap[" M foo.py"], str)
+    assert "foo.py" in snap
+    assert isinstance(snap["foo.py"], str)
 
 
 def test_snapshot_hash_differs_after_content_change(tmp_path: Path) -> None:
@@ -55,7 +55,7 @@ def test_snapshot_hash_differs_after_content_change(tmp_path: Path) -> None:
     with patch("agent_native_workflow.detect.subprocess.run", _git_status([" M store.py"])):
         snap2 = snapshot_working_tree(tmp_path)
 
-    assert snap1[" M store.py"] != snap2[" M store.py"]
+    assert snap1["store.py"] != snap2["store.py"]
 
 
 def test_snapshot_returns_empty_dict_on_git_failure(tmp_path: Path) -> None:
@@ -80,7 +80,7 @@ def test_snapshot_handles_untracked_file(tmp_path: Path) -> None:
     (tmp_path / "new.py").write_text("brand new")
     with patch("agent_native_workflow.detect.subprocess.run", _git_status(["?? new.py"])):
         snap = snapshot_working_tree(tmp_path)
-    assert "?? new.py" in snap
+    assert "new.py" in snap
 
 
 def test_snapshot_handles_multiple_files(tmp_path: Path) -> None:
@@ -92,8 +92,8 @@ def test_snapshot_handles_multiple_files(tmp_path: Path) -> None:
     ):
         snap = snapshot_working_tree(tmp_path)
     assert len(snap) == 2
-    assert " M a.py" in snap
-    assert " M b.py" in snap
+    assert "a.py" in snap
+    assert "b.py" in snap
 
 
 # ── files_changed_since ───────────────────────────────────────────────────────

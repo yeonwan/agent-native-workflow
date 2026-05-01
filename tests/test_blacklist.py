@@ -459,8 +459,8 @@ def test_audit_detects_file_deletion() -> None:
         def info(self, msg: str) -> None:
             pass
 
-    before = {" M src/app.py": "hash1"}
-    after = {" D src/app.py": "hash2"}
+    before = {"src/app.py": "hash1"}
+    after = {}  # file disappeared from git status
 
     with patch(
         "agent_native_workflow.pipeline._get_head_hash",
@@ -486,7 +486,7 @@ def test_audit_detects_sensitive_file_modification() -> None:
             pass
 
     before: dict[str, str] = {}
-    after = {" M .env": "hash_new"}
+    after = {".env": "hash_new"}
 
     with patch(
         "agent_native_workflow.pipeline._get_head_hash",

@@ -372,9 +372,9 @@ def _file_hash(path: Path) -> str:
 def snapshot_working_tree(project_root: Path | None = None) -> dict[str, str]:
     """Capture modified/staged/untracked files with their content hashes.
 
-    Returns {porcelain_line: content_hash} so that files already in a modified
-    state (from a prior iteration) are still detected as changed if their
-    content differs from the snapshot taken before Agent A ran.
+    Returns {filepath: content_hash} keyed by **file path** (not the raw
+    porcelain line) so that ``git add`` status-code changes (`` M`` → ``M ``)
+    don't cause false negatives in ``files_changed_since()``.
     """
     root = project_root or Path.cwd()
     try:
@@ -390,7 +390,7 @@ def snapshot_working_tree(project_root: Path | None = None) -> dict[str, str]:
             if not line:
                 continue
             path_str = line[3:].split(" -> ")[-1].strip()
-            snapshot[line] = _file_hash(root / path_str)
+            snapshot[path_str] = _file_hash(root / path_str)
         return snapshot
     except (subprocess.SubprocessError, FileNotFoundError):
         return {}
@@ -399,18 +399,18 @@ def snapshot_working_tree(project_root: Path | None = None) -> dict[str, str]:
 def files_changed_since(before: dict[str, str], project_root: Path | None = None) -> list[str]:
     """Return files that changed between a snapshot and now.
 
-    Detects both new entries in git status AND files whose content hash
-    changed even though the git status code stayed the same (e.g. a file
-    already modified in a prior iteration that the agent edited again).
+    Detects:
+    - New files (in after but not in before)
+    - Modified files (same path, different content hash)
+    - Deleted files (in before but not in after — content hash becomes empty)
     """
     after = snapshot_working_tree(project_root)
     paths: list[str] = []
-    for entry, hash_after in sorted(after.items()):
-        hash_before = before.get(entry)
+    # New or modified files
+    for filepath, hash_after in sorted(after.items()):
+        hash_before = before.get(filepath)
         if hash_before is None or hash_before != hash_after:
-            # porcelain format: "XY path" or "XY old -> new"
-            parts = entry[3:].split(" -> ")
-            paths.append(parts[-1].strip())
+            paths.append(filepath)
     return paths
 
 
